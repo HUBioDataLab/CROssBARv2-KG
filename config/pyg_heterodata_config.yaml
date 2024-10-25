@@ -1,0 +1,50 @@
+node_types:
+  - Biological_process
+  - Cellular_component
+  - Compound
+  - Disease
+  - Domain
+  - Drug
+  - Ec
+  - Gene
+  - Molecular_function
+  - Organism
+  - Pathway
+  - Phenotype
+  - Protein
+  - Side_effect
+
+edge_types: # edge_type, src_type, dst_type, src_column_name, dst_column_name
+  - [CTI, Compound, Protein, chembl, uniprot_id]
+  - [DDI, Drug, Drug, drug1, drug2]
+  - [DGI, Drug, Gene, drugbank_id, entrez_id]
+  - [Disease_hiererchical_edges, Disease, Disease, child_id, parent_id]
+  - [Disease_to_disease_association_edge, Disease, Disease, disease_id1, disease_id2]
+  - [Disease_to_disease_comorbidity_edge, Disease, Disease, disease1, disease2]
+  - [Disease_to_drug_edge, Disease, Drug, disease_id, drug_id]
+  - [Disease_to_pathway, Disease, Pathway, disease_id, pathway_id]
+  - [Domain_to_go, Domain, GO, source, target]
+  - [Drug_to_pathway, Drug, Pathway, drug_id, pathway_id]
+  - [Drug_to_side_effect, Drug, Side_effect, drugbank_id, meddra_id]
+  - [DTI, Drug, Protein, drugbank_id, uniprot_id]
+  - [Ec_hierarchy, Ec, Ec, child_id, parent_id]
+  - [Gene_encodes_protein, Gene, Protein, source_id, target_id]
+  - [Gene_to_disease_edge, Gene, Disease, gene_id, disease_id]
+  - [Go_to_go, GO, GO, source, target]
+  - [Organism_to_disease_edge, Organism, Disease, organism_id, disease_id]
+  - [Orthology, Gene, Gene, entrez_a, entrez_b]
+  - [Pathway_orthology, Pathway, Pathway, pathway1_id, pathway2_id]
+  - [Pathway_to_pathway, Pathway, Pathway, pathway_id1, pathway_id2]
+  - [Phenotype_hierarchical_edges, Phenotype, Phenotype, child_id, parent_id]
+  - [Phenotype_to_disease, Phenotype, Disease, hpo_id, disease_id]
+  - [Protein_to_pathway, Protein, Pathway, uniprot_id, pathway_id]
+  - [PPI, Protein, Protein, uniprot_a, uniprot_b]
+  - [Protein_belongs_to_organism, Protein, Organism, source_id, target_id]
+  - [Protein_has_domain, Protein, Domain, source_id, target_id]
+  - [Protein_to_ec, Protein, Ec, protein_id, ec_id]
+  - [Protein_to_go, Protein, GO, source, target]
+  - [Protein_to_pathway, Protein, Pathway, uniprot_id, pathway_id]
+  - [Protein_to_phenotype, Protein, Phenotype, protein_id, hpo_id]
+  - [Reactome_hierarchical_edges, Pathway, Pathway, child_id, parent_id]
+  - [Side_effect_hierarchy, Side_effect, Side_effect, child_id, parent_id]
+  - [Tf_gen_edges, Gene, Gene, tf, target]
