@@ -126,7 +126,7 @@ class GraphLoader:
                 src, dst = zip(*src_dst_pairs)
                 edge_dict[edge_type] = (list(src), list(dst))
                 print(f'{len(src)} {edge_type} edges loaded from {len(edge_df)} rows')
-                print(f'{none_count} edges could not be loaded due to unmatched IDs: {src_none} unmatched src IDs, {dst_none} unmatched dst IDs')
+                print(f'{none_count} edges could not be loaded due to unmatched IDs: {src_none} unmatched {src_type} IDs, {dst_none} unmatched {dst_type} IDs')
 
             else:
                 edge_dict[edge_type] = ([], [])
