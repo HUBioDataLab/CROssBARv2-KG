@@ -1,0 +1,115 @@
+node {
+  diameter: 50px;
+  color: #A5ABB6;
+  border-color: #9AA1AC;
+  border-width: 2px;
+  text-color-internal: #FFFFFF;
+  font-size: 10px;
+}
+relationship {
+  color: #A5ABB6;
+  shaft-width: 1px;
+  font-size: 8px;
+  padding: 3px;
+  text-color-external: #000000;
+  text-color-internal: #FFFFFF;
+  caption: "<type>";
+}
+node.BiologicalProcess {
+  color: #ff8800;
+  border-color: #b261a5;
+  text-color-internal: #FFFFFF;
+  defaultCaption: "<id>";
+  caption: "{name}";
+}
+node.CellularComponent {
+  color: #ffc300;
+  border-color: #b261a5;
+  text-color-internal: #FFFFFF;
+  defaultCaption: "<id>";
+  caption: "{name}";
+}
+node.MolecularFunction {
+  color: #ffaa00;
+  border-color: #b261a5;
+  text-color-internal: #FFFFFF;
+  defaultCaption: "<id>";
+  caption: "{name}";
+}
+node.Compound {
+  color: #d2b7e5;
+  border-color: #eb2728;
+  text-color-internal: #FFFFFF;
+  defaultCaption: "<id>";
+  caption: "{id}";
+}
+node.Protein {
+  color: #3aa6a4;
+  border-color: #c0a378;
+  text-color-internal: #ffffff;
+  defaultCaption: "<id>";
+  caption: "{primary_protein_name}";
+}
+node.ProteinDomain {
+  color: #6bbf59;
+  border-color: #5db665;
+  text-color-internal: #ffffff;
+  defaultCaption: "<id>";
+  caption: "{name}";
+}
+node.Gene {
+  color: #287271;
+  border-color: #c0a378;
+  text-color-internal: #ffffff;
+  defaultCaption: "<id>";
+  caption: "{gene_symbol}";
+}
+node.Drug {
+  color: #815ac0;
+  border-color: #5db665;
+  text-color-internal: #000000;
+  defaultCaption: "<id>";
+  caption: "{name}";
+}
+node.SideEffect {
+  color: #9ae9f8;
+  border-color: #5db665;
+  text-color-internal: #ffffff;
+  defaultCaption: "<id>";
+  caption: "{name}";
+}
+node.Phenotype {
+  color: #58d0e8;
+  border-color: #5db665;
+  text-color-internal: #ffffff;
+  defaultCaption: "<id>";
+  caption: "{name}";
+}
+node.Disease {
+  color: #079dbb;
+  border-color: #5db665;
+  text-color-internal: #ffffff;
+  defaultCaption: "<id>";
+  caption: "{name}";
+}
+node.Pathway {
+  color: #720026;
+  border-color: #5db665;
+  text-color-internal: #ffffff;
+  defaultCaption: "<id>";
+  caption: "{name}";
+}
+node.OrganismTaxon {
+  color: #a6a6a6;
+  border-color: #5db665;
+  text-color-internal: #ffffff;
+  defaultCaption: "<id>";
+  caption: "{name}";
+}
+node.Reaction {
+  color: #ce4257;
+  border-color: #5db665;
+  text-color-internal: #ffffff;
+  defaultCaption: "<id>";
+  caption: "{name}";
+}
