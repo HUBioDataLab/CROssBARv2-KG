@@ -104,7 +104,7 @@ node.OrganismTaxon {
   border-color: #5db665;
   text-color-internal: #ffffff;
   defaultCaption: "<id>";
-  caption: "{name}";
+  caption: "{organism_name}";
 }
 node.Reaction {
   color: #ce4257;
