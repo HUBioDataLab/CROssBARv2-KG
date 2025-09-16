@@ -50,7 +50,7 @@ SYNONYMS = "synonyms"
 SYNONYMS = "alternative names"
 ```
 
->:warning:**Important Exception:** While most adapters support this flexibility, the `uniprot_adapter` is a notable exception. You can use `uniprot_adapter.gene_property_name_mappings` or `uniprot_adapter.protein_property_name_mappings` for this purpose.
+>:warning:**Important Exception:** While most adapters support this flexibility, the `uniprot_adapter` is a notable exception. You can use `uniprot_adapter.gene_property_name_mappings` or `uniprot_adapter.protein_property_name_mappings` dictionaries for this purpose.
 
 
 
