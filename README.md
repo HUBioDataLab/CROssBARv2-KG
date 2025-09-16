@@ -16,6 +16,44 @@ Building upon this foundation, we further enhanced the semantic depth of CROssBA
 
 ![CROssBARv2 KG](https://crossbarv2.hubiodatalab.com/static/images/crossbar-schema.png)
 
+## Adapter Usage
+
+On top of modular design of the framework, we devised adapters object oriented manner. We showed how to create nodes and interaction types from adapters with enum classes, what information provided in the data sources can be used as node/edge attributes, and paved the way for using them in a configurable way. 
+
+To achieve this, we use **enum classes** to standardize the creation of node and edge types, properties, and labels. With these enums, each adapter can be flexibly configured to determine exactly what data it retrieves and how it is represented. This design offers a structured, modular, and consistent approach to managing different data sources within the KG.
+
+---
+
+### Enum Classes in Adapters
+
+Enums ending in `..NodeField` control which properties are created for a specific node type. They map the fields from the source data to the property names in the KG.
+
+Example:
+```
+class SideEffectNodeField(Enum, metaclass=SideEffectEnumMeta):
+    NAME = "name"
+    SYNONYMS = "synonyms"
+```
+
+By selecting keys from this enum class (explained further below), you can determine which properties the side effect nodes will have in the KG.
+
+Depending on the adapter you can encounter following enum classes:
+
+Enums ending in `..NodeField` control which properties are created for a specific node type. They map the fields from the source data to the property names in the KG.
+
+In many cases, you can also change how properties are represented by editing the values of the enum class:
+```
+# Default representation
+SYNONYMS = "synonyms"
+
+# Custom representation  
+SYNONYMS = "alternative names"
+```
+
+>:warning:**Important Exception:** While most adapters support this flexibility, the `uniprot_adapter` is a notable exception. You can use `uniprot_adapter.gene_property_name_mappings` or `uniprot_adapter.protein_property_name_mappings` for this purpose.
+
+
+
 ## Installation
 The project uses [Poetry](https://python-poetry.org). You can install like this:
 
