@@ -1,7 +1,12 @@
-# CROssBAR-BioCypher-Migration
-This is a repo for CROssBARv2 data to the Neo4j database via [BioCypher](https://github.com/saezlab/BioCypher). CROssBARv2 is, an extended and improved version of our previous work (for v1 please check [CROssBAR](https://github.com/cansyl/CROssBAR)), a heterogeneous general purpose biomedical knowledge graph (KG) based system.
+# CROssBAR-KG
+This is a repo for CROssBARv2 Knowledge Graph (KG) data. CROssBARv2 is, an extended and improved version of our previous work (for v1 please check [CROssBAR](https://github.com/cansyl/CROssBAR)), a heterogeneous general purpose biomedical KG based system. 
 
-### This repo is currently under development. Therefore, you may encounter some problems while replicating it. Feel free to open issue if you encounter any problems.
+This repository provides a collection of configurable and reusable **adapter scripts** designed to collect, process, and harmonize biological data. Each adapter is responsible for handling a specific entity type or data source, making the system flexible and easy to extend.  
+
+You can explore the available adapters in the [bccb directory](/bccb).
+
+These adapters employ the [pypath](https://github.com/saezlab/pypath) for data retrieval and [BioCypher](https://github.com/biocypher/biocypher) for KG creation.
+
 
 ## Installation
 The project uses [Poetry](https://python-poetry.org). You can install like this:
