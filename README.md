@@ -1,5 +1,5 @@
 # CROssBAR-KG
-This is a repo for CROssBARv2 Knowledge Graph (KG) data. CROssBARv2 is, an extended and improved version of our previous work (for v1 please check [CROssBAR](https://github.com/cansyl/CROssBAR)), a heterogeneous general purpose biomedical KG based system. 
+This is the repo for CROssBARv2 Knowledge Graph (KG) data. CROssBARv2 is a heterogeneous general-purpose biomedical KG-based system. 
 
 This repository provides a collection of configurable and reusable **adapter scripts** designed to collect, process, and harmonize biological data. Each adapter is responsible for handling a specific entity type or data source, making the system flexible and easy to extend.  
 
@@ -18,7 +18,7 @@ Building upon this foundation, we further enhanced the semantic depth of CROssBA
 
 ## Adapter Usage
 
-On top of modular design of the framework, we devised adapters object oriented manner. We showed how to create nodes and interaction types from adapters with enum classes, what information provided in the data sources can be used as node/edge attributes, and paved the way for using them in a configurable way. 
+On top of modular design of the framework, we devised adapters object-oriented manner. We showed how to create nodes and interaction types from adapters with enum classes, what information provided in the data sources can be used as node/edge attributes, and paved the way for using them in a configurable way. 
 
 To achieve this, we use **enum classes** to standardize the creation of node and edge types, properties, and labels. With these enums, each adapter can be flexibly configured to determine exactly what data it retrieves and how it is represented. This design offers a structured, modular, and consistent approach to managing different data sources within the KG.
 
