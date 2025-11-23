@@ -76,3 +76,7 @@ by running `poetry shell` followed by `pip list`, noting the version of pycurl,
 and then running `pip install --compile --install-option="--with-openssl"
 --upgrade --force-reinstall pycurl==<version>` to provide the correct SSL
 backend.
+
+## Data
+
+Neo4j-importable CSV files required to reconstruct the KG are publicly available at [here](https://drive.google.com/file/d/1KoMAxlvy_4IOo8MPi4TrSbMlQtBf8Pch/view?usp=sharing).
