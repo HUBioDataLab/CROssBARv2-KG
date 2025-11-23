@@ -1,3 +1,12 @@
+
+- [CROssBAR-KG](#crossbar-kg)
+  - [About the KG](#about-the-kg)
+  - [Adapter Usage](#adapter-usage)
+    - [Enum Classes in Adapters](#enum-classes-in-adapters)
+  - [Installation](#installation)
+    - [Note about pycurl](#note-about-pycurl)
+  - [Data](#data)
+
 # CROssBAR-KG
 This is the repo for CROssBARv2 Knowledge Graph (KG) data. CROssBARv2 is a heterogeneous general-purpose biomedical KG-based system. 
 
