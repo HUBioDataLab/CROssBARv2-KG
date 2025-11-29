@@ -3,7 +3,7 @@ from pypath.share import curl, settings
 
 from pypath.inputs import reactome, uniprot, ctdbase, compath, unichem, drugbank
 from pypath.inputs import ontology
-import kegg_local
+from . import kegg_local
 
 from contextlib import ExitStack
 
@@ -203,7 +203,7 @@ class Pathway:
         cache: bool = False,
         debug: bool = False,
         retries: int = 3,
-        biokeen_embedding_path: FilePath = "embeddings/biokeen_pathway_embedding.h5"
+        biokeen_embedding_path: FilePath | None = None,
     ) -> None:
         """
         Wrapper function to download pathway data from various databases using pypath.
