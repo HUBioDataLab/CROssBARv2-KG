@@ -142,7 +142,7 @@ class HPO:
         cache: bool = False,
         debug: bool = False,
         retries: int = 3,
-        cada_embedding_path: FilePath = "embeddings/cada_phenotype_embedding.h5"
+        cada_embedding_path: FilePath | None = None
     ) -> None:
         """
         Wrapper function to download hpo data from various databases using pypath.
@@ -183,7 +183,7 @@ class HPO:
                 f"HPO data is downloaded in {round((t1-t0) / 60, 2)} mins"
             )
     @validate_call
-    def retrieve_cada_embeddings(self, cada_embedding_path: FilePath = "embeddings/cada_phenotype_embedding.h5") -> None:
+    def retrieve_cada_embeddings(self, cada_embedding_path: FilePath | None = None) -> None:
         logger.info("Retrieving CADA phenotype embeddings.")
 
         self.hpo_id_to_cada_embedding = {}
