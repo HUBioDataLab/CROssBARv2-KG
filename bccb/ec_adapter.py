@@ -105,7 +105,7 @@ class EC:
         cache: bool = False,
         debug: bool = False,
         retries: int = 3,
-        rxnfp_embedding_path: FilePath = "embeddings/rxnfp_ec_number_embedding.h5"
+        rxnfp_embedding_path: FilePath | None = None
     ) -> None:
         """
         Wrapper function to download ec data from various databases using pypath.
@@ -143,7 +143,7 @@ class EC:
             )
     
     def retrieve_rxfnp_embeddings(self, 
-                                  rxnfp_embedding_path: FilePath = "embeddings/rxnfp_ec_number_embedding.h5"):
+                                  rxnfp_embedding_path: FilePath | None = None):
         
         logger.info("Retrieving RXNFP ec number embeddings")
 
