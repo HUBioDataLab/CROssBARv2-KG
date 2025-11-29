@@ -260,8 +260,8 @@ class Uniprot:
         debug: bool = False,
         retries: int = 3,
         prott5_embedding_output_path: FilePath | None = None,
-        esm2_embedding_path: FilePath = "embeddings/esm2_t33_650M_UR50D_protein_embedding.h5",
-        nucleotide_transformer_embedding_path: FilePath = "embeddings/nucleotide_transformerv2_2.5b_multispecies_embeddings.h5",
+        esm2_embedding_path: FilePath | None = None,
+        nucleotide_transformer_embedding_path: FilePath | None = None,
     ):
         """
         Wrapper function to download uniprot data using pypath; used to access
@@ -298,8 +298,8 @@ class Uniprot:
     def _download_uniprot_data(
         self, 
         prott5_embedding_output_path: FilePath | None = None,
-        esm2_embedding_path: FilePath = "embeddings/esm2_t33_650M_UR50D_protein_embedding.h5",
-        nucleotide_transformer_embedding_path: FilePath = "embeddings/nucleotide_transformerv2_2.5b_multispecies_embeddings.h5",
+        esm2_embedding_path: FilePath | None = None,
+        nucleotide_transformer_embedding_path: FilePath | None = None,
     ):
         """
         Download uniprot data from uniprot.org through pypath.
@@ -427,7 +427,7 @@ class Uniprot:
                     
     @validate_call
     def retrieve_esm2_embeddings(self, 
-                                 esm2_embedding_path: FilePath = "embeddings/esm2_t33_650M_UR50D_protein_embedding.h5") -> None:
+                                 esm2_embedding_path: FilePath | None = None) -> None:
         
         logger.info("Retrieving ESM2 embeddings...")
 
@@ -457,7 +457,7 @@ class Uniprot:
         del df_list
 
     def retrieve_nucleotide_transformer_embeddings(self,
-                                                   nucleotide_transformer_embedding_path: FilePath = "embeddings/nucleotide_transformerv2_2.5b_multispecies_embeddings.h5") -> None:
+                                                   nucleotide_transformer_embedding_path: FilePath | None = None) -> None:
         
         logger.info("Retrieving Nucleotide Transformer embeddings...")
 
