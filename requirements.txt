@@ -1,0 +1,11 @@
+biocypher==0.5.19
+bioregistry==0.10.56
+h5py==3.10.0
+more_itertools==10.2.0
+numpy==1.26.4
+pandas==2.2.1
+pydantic[email]==2.5.2
+pypath-omnipath @ git+https://github.com/HUBioDataLab/CROssBAR-pypath.git@master
+PyYAML==6.0.1
+requests==2.31.0
+tqdm==4.66.1
