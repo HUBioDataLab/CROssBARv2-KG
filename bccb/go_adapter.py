@@ -14,7 +14,7 @@ import pandas as pd
 import numpy as np
 
 from typing import Literal, Union, Optional
-from pydantic import BaseModel, DirectoryPath, FilePath, HttpUrl, validate_call
+from pydantic import BaseModel, FilePath, HttpUrl, validate_call
 
 from time import time
 
@@ -439,8 +439,8 @@ class GO:
         debug: bool = False,
         retries: int = 6,
         all_go_annotations_url: HttpUrl = "https://ftp.ebi.ac.uk/pub/databases/GO/goa/UNIPROT/goa_uniprot_gcrp.gaf.gz",
-        all_annotations_output_path: None | FilePath = None,
-        anc2vec_embedding_path: FilePath = "embeddings/anc2vec_go_term_embedding.h5"
+        all_annotations_output_path: FilePath | None = None,
+        anc2vec_embedding_path: FilePath | None = None
     ):
         """
         Wrapper function to download Gene Ontology data using pypath; used to access
@@ -602,7 +602,7 @@ class GO:
                 logger.info(
                     f"Interpro2go data is downloaded in {round((t1-t0) / 60, 2)} mins"
                 )
-    def retrieve_anc2vec_embedding(self, anc2vec_embedding_path: FilePath = "embeddings/anc2vec_go_term_embedding.h5"):
+    def retrieve_anc2vec_embedding(self, anc2vec_embedding_path: FilePath | None = None):
         logger.info("Retrieving Anc2vec go term embeddings")
 
         self.go_term_to_anc2vec_embedding = {}
