@@ -175,7 +175,7 @@ class InterPro:
     def download_interpro_data(self, cache: bool = False,
                                debug: bool = False,
                                retries: int = 3,
-                               dom2vec_embedding_path: FilePath = "embeddings/dom2vec_domain_embedding.h5") -> None:
+                               dom2vec_embedding_path: FilePath | None = None) -> None:
         """
         Wrapper function to download InterPro data using pypath; used to access
         settings.
@@ -200,7 +200,7 @@ class InterPro:
             self.download_domain_edge_data()
 
     @validate_call
-    def download_domain_node_data(self, dom2vec_embedding_path: FilePath = "embeddings/dom2vec_domain_embedding.h5") -> None:
+    def download_domain_node_data(self, dom2vec_embedding_path: FilePath | None = None) -> None:
         """
         Downloads domain node data from Interpro
         """
@@ -253,7 +253,7 @@ class InterPro:
         )
 
     def retrieve_dom2vec_embeddings(self, 
-                                    dom2vec_embedding_path: FilePath = "embeddings/dom2vec_domain_embedding.h5") -> None:
+                                    dom2vec_embedding_path: FilePath | None = None) -> None:
 
         logger.info("Retrieving dom2vec domain embeddings.")
 
@@ -261,7 +261,7 @@ class InterPro:
         with h5py.File(dom2vec_embedding_path, "r") as f:
             for interpro_id, embedding in f.items():
                 self.interpro_id_to_dom2vec_embedding[interpro_id] = np.array(embedding).astype(np.float16)
-
+                    
     @validate_call
     def get_interpro_nodes(self, node_label: str = "domain") -> list[tuple]:
         """
