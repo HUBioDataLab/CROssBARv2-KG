@@ -14,8 +14,8 @@ from pypath.inputs import (
     unichem,
     humsavar,
 )
-import kegg_local
-import disgenet_local as disgenet
+from . import kegg_local
+from . import disgenet_local as disgenet
 import json
 import os
 import h5py
@@ -255,7 +255,9 @@ class Disease:
         cache: bool = False,
         debug: bool = False,
         retries: int = 3,
-        doc2vec_embedding_path: FilePath = "embeddings/doc2vec_disease_embedding.h5",
+        doc2vec_embedding_path: FilePath | None = None,
+        malacards_json_path: FilePath | None = None,
+        malacards_related_diseases_json_path: FilePath | None = None,
     ):
         """
         Wrapper function to download disease data from various databases using pypath.
@@ -286,7 +288,7 @@ class Disease:
             self.download_clinvar_data()
             self.download_disgenet_data()
             self.download_opentargets_data()
-            self.download_malacards_data()
+            self.download_malacards_data(malacards_json_path=malacards_json_path, malacards_related_diseases_json_path=malacards_related_diseases_json_path)
             self.download_kegg_data()
             self.download_humsavar_data()
 
@@ -656,13 +658,16 @@ class Disease:
                 f"Disgenet gene-disease interaction data is downloaded in {round((t1-t0) / 60, 2)} mins"
             )
 
-    def download_malacards_data(self) -> None:
+    def download_malacards_data(self, 
+                                malacards_json_path: FilePath | None = None, 
+                                malacards_related_diseases_json_path: FilePath | None = None) -> None:
 
         if DiseaseEdgeType.DISEASE_COMOBORDITIY in self.edge_types:
             t0 = time()
-            malacards_json_path = os.path.join(
-                cache.get_cachedir(), "MalaCards.json"
-            )
+            if not malacards_json_path:
+                malacards_json_path = os.path.join(
+                    cache.get_cachedir(), "MalaCards.json"
+                )
             with open(malacards_json_path, encoding="utf-8") as file:
                 file_content = file.read()
 
@@ -674,10 +679,11 @@ class Disease:
                 entry["DiseaseSlug"]: entry["McId"]
                 for entry in malacards_external_ids
             }
+            if not malacards_related_diseases_json_path:
+                malacards_related_diseases_json_path = os.path.join(
+                    cache.get_cachedir(), "MalaCardsRelatedDiseases.json"
+                )
 
-            malacards_related_diseases_json_path = os.path.join(
-                cache.get_cachedir(), "MalaCardsRelatedDiseases.json"
-            )
             with open(
                 malacards_related_diseases_json_path, encoding="utf-8"
             ) as file:
@@ -719,10 +725,12 @@ class Disease:
             self.download_mondo_data()
 
         for term in self.mondo:
+
             if (
                 not term.is_obsolete
                 and term.obo_id
                 and "MONDO" in term.obo_id
+                and hasattr(term, "obo_xref")
                 and term.obo_xref
             ):
                 for xref in term.obo_xref:
