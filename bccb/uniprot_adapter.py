@@ -76,6 +76,10 @@ class UniprotNodeField(Enum, metaclass=UniprotEnumMeta):
     # we provide these by getting embeddings from ESM2 650M model
     ESM2_EMBEDDING = "esm2_embedding"
 
+    # not from uniprot REST
+    # we provide these by getting embeddings from Nucletide tranformer 2 model
+    NT_EMBEDDING = "nt_embedding"
+
     @classmethod
     def _missing_(cls, value: str):
         value = value.lower()
@@ -91,6 +95,7 @@ class UniprotNodeField(Enum, metaclass=UniprotEnumMeta):
             cls.PROTEIN_NAMES.value,
             cls.PROTEOME.value,
             cls.EC.value,
+            cls.ORGANISM.value,
             cls.ORGANISM_ID.value,
             cls.SEQUENCE.value,
             cls.PROTT5_EMBEDDING.value,
@@ -105,6 +110,7 @@ class UniprotNodeField(Enum, metaclass=UniprotEnumMeta):
             cls.ENSEMBL_TRANSCRIPT_IDS.value,
             cls.ENSEMBL_GENE_IDS.value,
             cls.PRIMARY_GENE_NAME.value,
+            cls.NT_EMBEDDING.value,
         ]
     
     @classmethod
@@ -255,6 +261,7 @@ class Uniprot:
         retries: int = 3,
         prott5_embedding_output_path: FilePath | None = None,
         esm2_embedding_path: FilePath = "embeddings/esm2_t33_650M_UR50D_protein_embedding.h5",
+        nucleotide_transformer_embedding_path: FilePath = "embeddings/nucleotide_transformerv2_2.5b_multispecies_embeddings.h5",
     ):
         """
         Wrapper function to download uniprot data using pypath; used to access
@@ -280,7 +287,8 @@ class Uniprot:
 
             self._download_uniprot_data(
                 prott5_embedding_output_path=prott5_embedding_output_path,
-                esm2_embedding_path=esm2_embedding_path
+                esm2_embedding_path=esm2_embedding_path,
+                nucleotide_transformer_embedding_path=nucleotide_transformer_embedding_path,
             )
 
             # preprocess data
@@ -291,6 +299,7 @@ class Uniprot:
         self, 
         prott5_embedding_output_path: FilePath | None = None,
         esm2_embedding_path: FilePath = "embeddings/esm2_t33_650M_UR50D_protein_embedding.h5",
+        nucleotide_transformer_embedding_path: FilePath = "embeddings/nucleotide_transformerv2_2.5b_multispecies_embeddings.h5",
     ):
         """
         Download uniprot data from uniprot.org through pypath.
@@ -314,11 +323,12 @@ class Uniprot:
 
         # download attribute dicts
         self.data = {}
-        for query_key in tqdm(self.node_fields):
+        for query_key in tqdm(self.node_fields, desc="Downloading uniprot fields"):
             if query_key in [
                 UniprotNodeField.ENSEMBL_GENE_IDS.value,
                 UniprotNodeField.PROTT5_EMBEDDING.value,
-                UniprotNodeField.ESM2_EMBEDDING.value
+                UniprotNodeField.ESM2_EMBEDDING.value,
+                UniprotNodeField.NT_EMBEDDING.value,
             ]:
                 continue
 
@@ -346,13 +356,20 @@ class Uniprot:
             self.data[UniprotNodeField.ESM2_EMBEDDING.value] = {}
             self.retrieve_esm2_embeddings(esm2_embedding_path)
 
+        if UniprotNodeField.NT_EMBEDDING.value in self.node_fields:
+            self.data[UniprotNodeField.NT_EMBEDDING.value] = {}
+            self.retrieve_nucleotide_transformer_embeddings(
+                nucleotide_transformer_embedding_path
+            )
+
         t1 = time()
         msg = f"Acquired UniProt data in {round((t1-t0) / 60, 2)} mins."
         logger.info(msg)
 
     @validate_call
     def download_prott5_embeddings(
-        self, prott5_embedding_output_path: FilePath | None = None
+        self, 
+        prott5_embedding_output_path: FilePath | None = None
     ):
         """
         Downloads ProtT5 embedding from uniprot website
@@ -368,7 +385,7 @@ class Uniprot:
         if prott5_embedding_output_path:
             full_path = prott5_embedding_output_path
         else:
-            full_path = os.path.join(os.getcwd(), "per-protein.h5")
+            full_path = os.path.join(os.getcwd(), "prott5_protein_embeddings.h5")
 
         if not os.path.isfile(full_path):
             logger.info("Downloading ProtT5 embeddings...")
@@ -381,8 +398,11 @@ class Uniprot:
         else:
             logger.info("ProtT5 Embedding file is exists. Reading from the file..")
 
+        df_list = []
         with h5py.File(full_path, "r") as file:
+
             for uniprot_id, embedding in file.items():
+                
                 embedding = np.array(embedding).astype(np.float16)
                 count = np.count_nonzero(~np.isnan(embedding))
                 if (
@@ -390,21 +410,30 @@ class Uniprot:
                     and uniprot_id in self.uniprot_ids
                     and count == 1024
                 ):
-                    self.data[UniprotNodeField.PROTT5_EMBEDDING.value][
-                        uniprot_id
-                    ] = embedding
+                    # self.data[UniprotNodeField.PROTT5_EMBEDDING.value][
+                    #     uniprot_id
+                    # ] = embedding
+                    df_list.append((uniprot_id, embedding))
                 elif count == 1024:
-                    self.data[UniprotNodeField.PROTT5_EMBEDDING.value][
-                        uniprot_id
-                    ] = embedding
+                    # self.data[UniprotNodeField.PROTT5_EMBEDDING.value][
+                    #     uniprot_id
+                    # ] = embedding
+                    df_list.append((uniprot_id, embedding))
+
+        
+        self.prott5_embedding_df = pd.DataFrame(df_list, columns=['uniprot_id', 'embedding'])
+
+        del df_list
                     
     @validate_call
     def retrieve_esm2_embeddings(self, 
-                                 esm2_embedding_path: FilePath | None = "embeddings/esm2_t33_650M_UR50D_protein_embedding.h5") -> None:
+                                 esm2_embedding_path: FilePath = "embeddings/esm2_t33_650M_UR50D_protein_embedding.h5") -> None:
         
         logger.info("Retrieving ESM2 embeddings...")
 
+        df_list = []
         with h5py.File(esm2_embedding_path, "r") as file:
+
             for uniprot_id, embedding in file.items():
                 embedding = np.array(embedding).astype(np.float16)
                 count = np.count_nonzero(~np.isnan(embedding))
@@ -413,13 +442,31 @@ class Uniprot:
                     and uniprot_id in self.uniprot_ids
                     and count == 1280
                 ):
-                    self.data[UniprotNodeField.ESM2_EMBEDDING.value][
-                        uniprot_id
-                    ] = embedding
+                    # self.data[UniprotNodeField.ESM2_EMBEDDING.value][
+                    #     uniprot_id
+                    # ] = embedding
+                    df_list.append((uniprot_id, embedding))
                 elif count == 1280:
-                    self.data[UniprotNodeField.ESM2_EMBEDDING.value][
-                        uniprot_id
-                    ] = embedding
+                    # self.data[UniprotNodeField.ESM2_EMBEDDING.value][
+                    #     uniprot_id
+                    # ] = embedding
+                    df_list.append((uniprot_id, embedding))
+
+        self.esm2_embedding_df = pd.DataFrame(df_list, columns=['uniprot_id', 'embedding'])
+
+        del df_list
+
+    def retrieve_nucleotide_transformer_embeddings(self,
+                                                   nucleotide_transformer_embedding_path: FilePath = "embeddings/nucleotide_transformerv2_2.5b_multispecies_embeddings.h5") -> None:
+        
+        logger.info("Retrieving Nucleotide Transformer embeddings...")
+
+        self.entrez_id_to_nucleotide_transformer_embedding = {}
+        with h5py.File(nucleotide_transformer_embedding_path, "r") as file:
+            for entrez_id, embedding in file.items():
+                embedding = np.array(embedding).astype(np.float16)
+                self.entrez_id_to_nucleotide_transformer_embedding[entrez_id] = embedding
+                
     def _preprocess_uniprot_data(self):
         """
         Preprocess uniprot data to make it ready for import. First, three types
@@ -436,14 +483,15 @@ class Uniprot:
 
         logger.info("Preprocessing UniProt data.")
 
-        for arg in tqdm(self.node_fields):
+        for arg in tqdm(self.node_fields, desc="Processing uniprot fields"):
 
             # do not process ensembl gene ids (we will get them from pypath)
             # and prott5 embeddings
             if arg in [
                 UniprotNodeField.ENSEMBL_GENE_IDS.value,
                 UniprotNodeField.PROTT5_EMBEDDING.value,
-                UniprotNodeField.ESM2_EMBEDDING.value
+                UniprotNodeField.ESM2_EMBEDDING.value,
+                UniprotNodeField.NT_EMBEDDING.value,
             ]:
                 pass
 
@@ -480,11 +528,12 @@ class Uniprot:
             if arg == UniprotNodeField.ENSEMBL_TRANSCRIPT_IDS.value:
 
                 for protein, attribute_value in self.data.get(arg).items():
+                    
 
                     attribute_value, ensg_ids = self._find_ensg_from_enst(
                         attribute_value
                     )
-
+                    
                     # update enst in data dict
                     self.data[UniprotNodeField.ENSEMBL_TRANSCRIPT_IDS.value][
                         protein
@@ -557,19 +606,18 @@ class Uniprot:
             "Preparing UniProt nodes of the types "
             f"{[type.name for type in self.node_types]}."
         )
+        
+        for protein_id, all_props in self._reformat_and_filter_proteins():
+            
+            if UniprotNodeType.PROTEIN in self.node_types:
+                protein_props = self._get_protein_properties(all_props, protein_id.split(":")[1])
 
-        for uniprot_entity in self._reformat_and_filter_proteins():
-
-            protein_id, all_props = uniprot_entity
-
-            protein_props = self._get_protein_properties(all_props)
-
-            # append protein node to output
-            if ligand_or_receptor:
-                ligand_or_receptor = self._get_ligand_or_receptor(protein_id)
-                yield (protein_id, ligand_or_receptor, protein_props)
-            else:
-                yield (protein_id, protein_label, protein_props)
+                # append protein node to output
+                if ligand_or_receptor:
+                    ligand_or_receptor = self._get_ligand_or_receptor(protein_id)
+                    yield (protein_id, ligand_or_receptor, protein_props)
+                else:
+                    yield (protein_id, protein_label, protein_props)
 
             # append gene node to output if desired
             if UniprotNodeType.GENE in self.node_types:
@@ -615,7 +663,7 @@ class Uniprot:
             "version": self.data_version,
         }
 
-        for protein in tqdm(self.uniprot_ids):
+        for protein in tqdm(self.uniprot_ids, desc="Getting edges"):
 
             protein_id = self.add_prefix_to_id("uniprot", protein)
 
@@ -739,6 +787,7 @@ class Uniprot:
             UniprotNodeField.ENSEMBL_GENE_IDS.value: "ensembl",
         }
 
+        genes = self._ensure_iterable(gene_raw)
         gene_props = {}
 
         for k in all_props.keys():
@@ -755,14 +804,16 @@ class Uniprot:
                 )
             ] = all_props[k]
 
+            if k == UniprotNodeField.NT_EMBEDDING.value and self.entrez_id_to_nucleotide_transformer_embedding.get(genes[0]) is not None:
+
+                gene_props[k] = [str(emb) for emb in self.entrez_id_to_nucleotide_transformer_embedding[genes[0]]]
+
         # source, licence, and version fields
         gene_props["source"] = self.data_source
         gene_props["licence"] = self.data_licence
         gene_props["version"] = self.data_version
 
         gene_list = []
-
-        genes = self._ensure_iterable(gene_raw)
 
         for gene in genes:
 
@@ -798,9 +849,9 @@ class Uniprot:
         return organism_id, organism_props
 
     @validate_call
-    def _get_protein_properties(self, all_props: dict) -> dict:
+    def _get_protein_properties(self, all_props: dict, protein_id: str) -> dict:
         protein_props = {}
-
+        
         for k in all_props.keys():
 
             # define protein_properties
@@ -814,11 +865,25 @@ class Uniprot:
                     else None
                 )
 
-            elif k == UniprotNodeField.PROTT5_EMBEDDING.value and all_props.get(k) is not None:
-                protein_props[k.replace(" ", "_").replace("-", "_")] = [str(emb) for emb in all_props[k]]
+                protein_props[
+                    (
+                        self.protein_property_name_mappings[k]
+                        if self.protein_property_name_mappings.get(k)
+                        else k.replace(" ", "_").replace("-", "_")
+                    )
+                ] = all_props[k]
 
-            elif k == UniprotNodeField.ESM2_EMBEDDING.value and all_props.get(k) is not None:
-                protein_props[k.replace(" ", "_").replace("-", "_")] = [str(emb) for emb in all_props[k]]
+            elif k == UniprotNodeField.PROTT5_EMBEDDING.value:
+                res = self.prott5_embedding_df[self.prott5_embedding_df["uniprot_id"] == protein_id]["embedding"]
+                if not res.empty:
+                # embedding = np.array(self.prott5_embedding[k]).astype(np.float16)
+                    protein_props[k.replace(" ", "_").replace("-", "_")] = [str(emb) for emb in res.values[0]]
+
+            elif k == UniprotNodeField.ESM2_EMBEDDING.value:
+                res = self.esm2_embedding_df[self.esm2_embedding_df["uniprot_id"] == protein_id]["embedding"]
+                if not res.empty:
+                # embedding = np.array(self.esm2_embedding[k]).astype(np.float16)
+                    protein_props[k.replace(" ", "_").replace("-", "_")] = [str(emb) for emb in res.values[0]]
             
             else:
                 # replace hyphens and spaces with underscore
@@ -857,7 +922,7 @@ class Uniprot:
             UniprotNodeField.PROTEIN_GENE_NAMES.value: " ",
         }
 
-            # if field in split_dict split accordingly
+        # if field in split_dict split accordingly
         if field_key in split_dict:
             field_value = field_value.split(split_dict[field_key])
             # if field has just one element in the list make it string
