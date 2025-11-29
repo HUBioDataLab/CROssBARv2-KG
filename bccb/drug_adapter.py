@@ -14,7 +14,7 @@ from pypath.inputs import (
     chembl,
     ddinter,
 )
-import kegg_local
+from . import kegg_local
 from contextlib import ExitStack
 from typing import Literal, Union, Optional
 from bioregistry import normalize_curie
@@ -271,7 +271,7 @@ class Drug:
         cache: bool = False,
         debug: bool = False,
         retries: int = 6,
-        selformer_embedding_path: FilePath = "embeddings/selformer_drug_embedding.h5"
+        selformer_embedding_path: FilePath | None = None
     ):
         """
         Wrapper function to download drug data from various databases using pypath.
@@ -474,7 +474,7 @@ class Drug:
     
     @validate_call
     def retrieve_selformer_embeddings(self,
-                                selformer_embedding_path: FilePath = "embeddings/selformer_drug_embedding.h5") -> None:
+                                selformer_embedding_path: FilePath | None = None) -> None:
         
         logger.info("Retrieving SELFormer drug embeddings")
 
@@ -576,7 +576,7 @@ class Drug:
         }
 
         # arrange unichem dict for selected unichem fields
-        for field in self.unichem_external_fields_dict.keys():
+        for field in list(self.unichem_external_fields_dict.keys()):
             if field not in self.unichem_external_fields:
                 del self.unichem_external_fields_dict[field]
 
