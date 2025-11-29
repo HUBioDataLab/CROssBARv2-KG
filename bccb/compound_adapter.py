@@ -79,6 +79,7 @@ class CompoundModel(BaseModel):
     add_prefix: bool = True
     export_csv: bool = False
     output_dir: DirectoryPath | None = None
+    stitch_organism: Optional[int | Literal["*"] | None] = None,
 
 
 class Compound:
@@ -95,6 +96,7 @@ class Compound:
         test_mode: Optional[bool] = False,
         export_csv: Optional[bool] = False,
         output_dir: Optional[DirectoryPath | None] = None,
+        stitch_organism: Optional[int | Literal["*"] | None] = None,
     ):
         """
         Initialize the Compound class.
@@ -106,6 +108,7 @@ class Compound:
             test_mode: if True, limits amount of output data
             export_csv: if True, export data as csv
             output_dir: Location of csv export if `export_csv` is True, if not defined it will be current directory
+            stitch_organism: NCBI taxonomy ID of the organism to download compound-target interaction data for, if "*", download for all organisms
         """
 
         model = CompoundModel(
@@ -115,7 +118,12 @@ class Compound:
             add_prefix=add_prefix,
             export_csv=export_csv,
             output_dir=output_dir,
+            stitch_organism=stitch_organism
         ).model_dump()
+
+        self.stitch_organism = (
+            "*" if model["stitch_organism"] in ("*", None) else model["stitch_organism"]
+        )
 
         self.add_prefix = model["add_prefix"]
         self.export_csv = model["export_csv"]
@@ -138,7 +146,7 @@ class Compound:
         cache: bool = False,
         debug: bool = False,
         retries: int = 3,
-        selformer_embedding_path: FilePath = "embeddings/selformer_compound_embedding.h5",
+        selformer_embedding_path: FilePath | None = None,
     ):
         """
         Wrapper function to download compound data from Chembl database using pypath.
@@ -176,7 +184,7 @@ class Compound:
             )
 
     def retrieve_selformer_embeddings(self, 
-                                     selformer_embedding_path: FilePath = "embeddings/selformer_compound_embedding.h5") -> None:
+                                     selformer_embedding_path: FilePath | None = None) -> None:
         """
         Downloads the selformer compound embedding.
 
@@ -347,7 +355,6 @@ class Compound:
     @validate_call
     def download_stitch_cti_data(
         self,
-        organism: str | list | None = None,
         score_threshold: (
             int
             | Literal[
@@ -360,8 +367,10 @@ class Compound:
         physical_interaction_score: bool = False,  # currently this arg doesnt work for organisms other than human. can be fixed if necessary.
     ) -> None:
 
-        if organism is None:
+        if self.stitch_organism is None or self.stitch_organism == "*":
             organism = string.string_species()
+        else:
+            organism = self.stitch_organism
 
         organism = common.to_list(organism)
 
