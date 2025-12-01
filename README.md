@@ -64,27 +64,24 @@ SYNONYMS = "alternative names"
 
 
 ## Installation
-The project uses [Poetry](https://python-poetry.org). You can install like this:
+The project uses [uv](https://docs.astral.sh/uv/). You can install like this:
 
+Create a virtual environment:
 ```
-git clone https://github.com/HUBioDataLab/CROssBAR-BioCypher-Migration.git
-cd CROssBAR-BioCypher-Migration
-poetry install
+uv venv crossbarv2 --python=3.10.8
 ```
+Activate the environment:
+```
+source crossbarv2/bin/activate
+```
+Install dependencies:
+```
+uv pip install -r requirements.txt
+```
+
 
 Poetry will create a virtual environment according to your configuration (either centrally or in the project folder). You can activate it by running `poetry shell` inside the project directory.
 
-### Note about pycurl
-You may encounter an error when executing the UniProt adapter about the SSL
-backend in pycurl: `ImportError: pycurl: libcurl link-time ssl backend (openssl)
-is different from compile-time ssl backend (none/other)`
-
-Should this happen, it can be fixed as described here:
-https://stackoverflow.com/questions/68167426/how-to-install-a-package-with-poetry-that-requires-cli-args
-by running `poetry shell` followed by `pip list`, noting the version of pycurl,
-and then running `pip install --compile --install-option="--with-openssl"
---upgrade --force-reinstall pycurl==<version>` to provide the correct SSL
-backend.
 
 ## Data
 
