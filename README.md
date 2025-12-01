@@ -199,10 +199,6 @@ Install dependencies:
 uv pip install -r requirements.txt
 ```
 
-
-Poetry will create a virtual environment according to your configuration (either centrally or in the project folder). You can activate it by running `poetry shell` inside the project directory.
-
-
 ## Data
 
 Neo4j-importable CSV files required to reconstruct the KG are publicly available at [here](https://drive.google.com/file/d/1KoMAxlvy_4IOo8MPi4TrSbMlQtBf8Pch/view?usp=sharing).
