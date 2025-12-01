@@ -126,7 +126,7 @@ bc.write_edges(drug_adapter.get_edges())
 bc.write_import_call()
 ```
 
-Some adapters also provide additional enums for configuration (for example, you can select organisms in the orthology adapter (/bccb/orthology_adapter)). If you do not pass any enum values, the adapter will use all available fields in the relevant enum class by default.
+Some adapters also provide additional enums for configuration (for example, you can select organisms in the [orthology adapter](/bccb/orthology_adapter.py)). If you do not pass any enum values, the adapter will use all available fields in the relevant enum class by default.
 
 Certain adapters require extra information for data retrieval, such as `drugbank_user` and `drugbank_password` for the `Drug` adapter. Besides enum-related arguments, most adapters share a common set of options:
 
