@@ -102,7 +102,7 @@ class DiseaseEdgeType(Enum, metaclass=DiseaseEnumMeta):
     DISEASE_COMOBORDITIY = auto()
 
 
-class GENE_TO_DISEASE_INTERACTION_FIELD(Enum, metaclass=DiseaseEnumMeta):
+class GeneDiseaseEdgeField(Enum, metaclass=DiseaseEnumMeta):
     SOURCE = "source"
     VARIANT_SOURCE = "variant_source"
     OPENTARGETS_SCORE = "opentargets_score"
@@ -125,7 +125,7 @@ class GENE_TO_DISEASE_INTERACTION_FIELD(Enum, metaclass=DiseaseEnumMeta):
         return None
 
 
-class DISEASE_TO_DRUG_INTERACTION_FIELD(Enum, metaclass=DiseaseEnumMeta):
+class DiseaseDrugEdgeField(Enum, metaclass=DiseaseEnumMeta):
     SOURCE = "source"
     MAX_PHASE = "max_phase"
     PUBMED_IDS = "pubmed_ids"
@@ -139,7 +139,7 @@ class DISEASE_TO_DRUG_INTERACTION_FIELD(Enum, metaclass=DiseaseEnumMeta):
         return None
 
 
-class DISEASE_TO_DISEASE_INTERACTION_FIELD(Enum, metaclass=DiseaseEnumMeta):
+class DiseaseDiseaseEdgeField(Enum, metaclass=DiseaseEnumMeta):
     SOURCE = "source"
     DISGENET_JACCARD_GENES_SCORE = "disgenet_jaccard_genes_score"
     DISGENET_JACCARD_VARIANTS_SCORE = "disgenet_jaccard_variants_score"
@@ -159,13 +159,13 @@ class DiseaseModel(BaseModel):
     disease_node_fields: Union[list[DiseaseNodeField], None] = None
     edge_types: Union[list[DiseaseEdgeType], None] = None
     gene_disease_edge_fields: Union[
-        list[GENE_TO_DISEASE_INTERACTION_FIELD], None
+        list[GeneDiseaseEdgeField], None
     ] = None
     disease_drug_edge_fields: Union[
-        list[DISEASE_TO_DRUG_INTERACTION_FIELD], None
+        list[DiseaseDrugEdgeField], None
     ] = None
     disease_disease_edge_fields: Union[
-        list[DISEASE_TO_DISEASE_INTERACTION_FIELD], None
+        list[DiseaseDiseaseEdgeField], None
     ] = None
     add_prefix: bool = True
     test_mode: bool = False
@@ -186,13 +186,13 @@ class Disease:
         disease_node_fields: Union[list[DiseaseNodeField], None] = None,
         edge_types: Union[list[DiseaseEdgeType], None] = None,
         gene_disease_edge_fields: Union[
-            list[GENE_TO_DISEASE_INTERACTION_FIELD], None
+            list[GeneDiseaseEdgeField], None
         ] = None,
         disease_drug_edge_fields: Union[
-            list[DISEASE_TO_DRUG_INTERACTION_FIELD], None
+            list[DiseaseDrugEdgeField], None
         ] = None,
         disease_disease_edge_fields: Union[
-            list[DISEASE_TO_DISEASE_INTERACTION_FIELD], None
+            list[DiseaseDiseaseEdgeField], None
         ] = None,
         add_prefix: bool = True,
         test_mode: bool = False,
@@ -204,9 +204,9 @@ class Disease:
             drugbank_user: drugbank username
             drugbank_passwd: drugbank password
             disease_node_fields: disease node fields that will be included in graph, if defined it must be values of elements from DiseaseNodeField enum class (not the names)
-            gene_disease_edge_fields: Gene-Disease edge fields that will be included in graph, if defined it must be values of elements from GENE_TO_DISEASE_INTERACTION_FIELD enum class (not the names)
-            disease_drug_edge_fields: Disease-Drug edge fields that will be included in graph, if defined it must be values of elements from DISEASE_TO_DRUG_INTERACTION_FIELD enum class (not the names)
-            disease_disease_edge_fields: Disease-Disease edge fields that will be included in graph, if defined it must be values of elements from DISEASE_TO_DISEASE_INTERACTION_FIELD enum class (not the names)
+            gene_disease_edge_fields: Gene-Disease edge fields that will be included in graph, if defined it must be values of elements from GeneDiseaseEdgeField enum class (not the names)
+            disease_drug_edge_fields: Disease-Drug edge fields that will be included in graph, if defined it must be values of elements from DiseaseDrugEdgeField enum class (not the names)
+            disease_disease_edge_fields: Disease-Disease edge fields that will be included in graph, if defined it must be values of elements from DiseaseDiseaseEdgeField enum class (not the names)
             edge_types: list of edge types that will be included in graph, if defined it must be elements (not values of elements) from DiseaseEdgeType enum class
             add_prefix: if True, add prefix to database identifiers
             test_mode: if True, limits amount of output data
@@ -2370,7 +2370,7 @@ class Disease:
             ]
         else:
             self.gene_disease_edge_fields = [
-                field.value for field in GENE_TO_DISEASE_INTERACTION_FIELD
+                field.value for field in GeneDiseaseEdgeField
             ]
 
         if disease_drug_edge_fields:
@@ -2379,7 +2379,7 @@ class Disease:
             ]
         else:
             self.disease_drug_edge_fields = [
-                field.value for field in DISEASE_TO_DRUG_INTERACTION_FIELD
+                field.value for field in DiseaseDrugEdgeField
             ]
 
         if disease_disease_edge_fields:
@@ -2388,5 +2388,5 @@ class Disease:
             ]
         else:
             self.disease_disease_edge_fields = [
-                field.value for field in DISEASE_TO_DISEASE_INTERACTION_FIELD
+                field.value for field in DiseaseDiseaseEdgeField
             ]

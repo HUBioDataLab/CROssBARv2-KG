@@ -20,12 +20,12 @@ import pandas as pd
 import numpy as np
 
 
-class TFGenEnumMeta(EnumMeta):
+class TFGeneEnumMeta(EnumMeta):
     def __contains__(cls, item):
         return item in cls.__members__.keys()
 
 
-class TFGenEdgeField(Enum, metaclass=TFGenEnumMeta):
+class TFGeneEdgeField(Enum, metaclass=TFGeneEnumMeta):
     SOURCE = "source"
     PUBMED_ID = "pubmed_id"
     TF_EFFECT = "tf_effect"
@@ -40,7 +40,7 @@ class TFGenEdgeField(Enum, metaclass=TFGenEnumMeta):
         return None
 
 
-class TFGenOrganismField(IntEnum, metaclass=TFGenEnumMeta):
+class TFGeneOrganismField(IntEnum, metaclass=TFGeneEnumMeta):
     TAX_9606 = 9606
     TAX_10090 = 10090
 
@@ -53,27 +53,36 @@ class TFGenOrganismField(IntEnum, metaclass=TFGenEnumMeta):
         return None
 
 
-class TFGenModel(BaseModel):
-    edge_fields: Union[list[TFGenEdgeField], None] = None
-    organism: Union[list[TFGenOrganismField], None] = None
+class TFGeneModel(BaseModel):
+    edge_fields: Union[list[TFGeneEdgeField], None] = None
+    organism: Union[list[TFGeneOrganismField], None] = None
     test_mode: bool = False
     export_csv: bool = False
     output_dir: DirectoryPath | None = None
     add_prefix: bool = True
 
 
-class TFGen:
+class TFGene:
     def __init__(
         self,
-        edge_fields: Union[list[TFGenEdgeField], None] = None,
-        organism: Union[list[TFGenOrganismField], None] = None,
+        edge_fields: Union[list[TFGeneEdgeField], None] = None,
+        organism: Union[list[TFGeneOrganismField], None] = None,
         test_mode: bool = False,
         export_csv: bool = False,
         output_dir: DirectoryPath | None = None,
         add_prefix: bool = True,
     ):
+        """
+        Args:
+            edge_fields: TF-Gene edge fields that will be included in graph, if defined it must be values of elements from TFGenEdgeField enum class (not the names)
+            organism: list of taxanomy ids of organisms that will be included in the graph, if defined it must be values of elements from TFGenOrganismField enum class (not the names)
+            test_mode: if True, limits amount of output data
+            export_csv: if True, exports the TF-Gene edge data as a csv file
+            output_dir: directory path to export the csv file, if None, uses current working directory.
+            add_prefix: if True, add prefix to database identifiers.
+        """
 
-        model = TFGenModel(
+        model = TFGeneModel(
             edge_fields=edge_fields,
             organism=organism,
             test_mode=test_mode,
@@ -516,10 +525,10 @@ class TFGen:
         if edge_fields:
             self.edge_fields = [field.value for field in edge_fields]
         else:
-            self.edge_fields = [field.value for field in TFGenEdgeField]
+            self.edge_fields = [field.value for field in TFGeneEdgeField]
 
     def set_organism(self, organism):
         if organism:
             self.organism = [field.value for field in organism]
         else:
-            self.organism = [field.value for field in TFGenOrganismField]
+            self.organism = [field.value for field in TFGeneOrganismField]

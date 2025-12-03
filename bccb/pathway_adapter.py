@@ -144,8 +144,7 @@ class Pathway:
             test_mode: if True, limits amount of output data
             export_csv: if True, export data as csv
             output_dir: Location of csv export if `export_csv` is True, if not defined and `export_csv` is True, it will be current directory
-            kegg_organism: which kegg organisms' pathway data that will be included in graph, by default it include all the kegg organisms
-            if defined, it should kegg organism prefixes.
+            kegg_organism: which kegg organisms' pathway data that will be included in graph, by default it include all the kegg organisms. If defined, it should be kegg organism prefixes.
         """
 
         model = PathwayModel(

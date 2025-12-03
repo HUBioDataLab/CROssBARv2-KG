@@ -58,7 +58,7 @@ from bccb.ec_adapter import (
 )
 
 from bccb.tfgen_adapter import (
-    TFGen
+    TFGene
 )
 
 from biocypher import BioCypher
@@ -275,13 +275,13 @@ bc.write_nodes(ec_adapter.get_nodes())
 bc.write_edges(ec_adapter.get_edges())
 
 # tf-gen
-tfgen_adapter = TFGen(
+tfgene_adapter = TFGene(
     export_csv=export_as_csv,
     output_dir=output_dir_path,
     test_mode=TEST_MODE
 )
-tfgen_adapter.download_tfgen_data(cache=CACHE)
-bc.write_edges(tfgen_adapter.get_edges())
+tfgene_adapter.download_tfgen_data(cache=CACHE)
+bc.write_edges(tfgene_adapter.get_edges())
 
 
 # Write import call and other post-processing

@@ -41,7 +41,7 @@ class OrthologyEdgeField(Enum, metaclass=OrthologyEnumMeta):
         return None
 
 
-class OMA_ORGANISMS(IntEnum, metaclass=OrthologyEnumMeta):
+class OMAOrganismField(IntEnum, metaclass=OrthologyEnumMeta):
     TAX_4932 = 4932  # s. cerevisiae
     TAX_10090 = 10090  # mouse
     TAX_3702 = 3702
@@ -73,7 +73,7 @@ class OMA_ORGANISMS(IntEnum, metaclass=OrthologyEnumMeta):
         return None
 
 
-class PHAROS_ORGANISMS(Enum, metaclass=OrthologyEnumMeta):
+class PharosOrganismField(Enum, metaclass=OrthologyEnumMeta):
     MOUSE = "Mouse"
     COW = "Cow"
     XENOPUS = "Xenopus"
@@ -100,8 +100,8 @@ class PHAROS_ORGANISMS(Enum, metaclass=OrthologyEnumMeta):
 
 class OrthologyModel(BaseModel):
     edge_fields: Union[list[OrthologyEdgeField], None] = None
-    oma_organisms: Union[list[OMA_ORGANISMS], None] = None
-    pharos_organisms: Union[list[PHAROS_ORGANISMS], None] = None
+    oma_organisms: Union[list[OMAOrganismField], None] = None
+    pharos_organisms: Union[list[PharosOrganismField], None] = None
     merge_with_pypath_taxids: bool = True
     add_prefix: bool = True
     test_mode: bool = False
@@ -118,8 +118,8 @@ class Orthology:
     def __init__(
         self,
         edge_fields: Union[list[OrthologyEdgeField], None] = None,
-        oma_organisms: Union[list[OMA_ORGANISMS], None] = None,
-        pharos_organisms: Union[list[PHAROS_ORGANISMS], None] = None,
+        oma_organisms: Union[list[OMAOrganismField], None] = None,
+        pharos_organisms: Union[list[PharosOrganismField], None] = None,
         merge_with_pypath_taxids: bool = True,
         add_prefix: bool = True,
         test_mode: bool = False,
@@ -129,8 +129,8 @@ class Orthology:
         """
         Args:
             edge_fields: Gene-gene orthology edge fields that will be included in graph, if defined it must be values of elements from OrthologyEdgeField enum class (not the names)
-            oma_organisms: list of taxanomy ids of organisms that will be compared against human to extract orthology relations, if defined it must be values of elements from OMA_ORGANISMS enum class (not the names)
-            pharos_organisms: list of taxanomy names of organisms that will be compared against human to extract orthology relations, if defined it must be values of elements from PHAROS_ORGANISMS enum class (not the names)
+            oma_organisms: list of taxanomy ids of organisms that will be compared against human to extract orthology relations, if defined it must be values of elements from OMAOrganismField enum class (not the names)
+            pharos_organisms: list of taxanomy names of organisms that will be compared against human to extract orthology relations, if defined it must be values of elements from PharosOrganismField enum class (not the names)
             merge_with_pypath_taxids: Whether to merge `oma_organisms` list with list of pypath's tax ids
             add_prefix: if True, add prefix to database identifiers
             test_mode: if True, limits amount of output data
@@ -490,7 +490,7 @@ class Orthology:
         if oma_organisms:
             self.oma_organisms = {field.value for field in oma_organisms}
         else:
-            self.oma_organisms = {field.value for field in OMA_ORGANISMS}
+            self.oma_organisms = {field.value for field in OMAOrganismField}
 
         # merge organisms with list of pypath taxids
         if merge_with_pypath_taxids:
@@ -502,4 +502,4 @@ class Orthology:
         if pharos_organisms:
             self.pharos_organisms = [field.value for field in pharos_organisms]
         else:
-            self.pharos_organisms = [field.value for field in PHAROS_ORGANISMS]
+            self.pharos_organisms = [field.value for field in PharosOrganismField]
