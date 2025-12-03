@@ -46,7 +46,7 @@ Example:
 from bccb.uniprot_adapter import Uniprot
 ```
 
-All adapters follow a standardized lifecycle consisting of four main steps: Initialization, Data Retrieval, Processing, and Extraction.
+Almost all adapters follow a standardized lifecycle consisting of four main steps: Initialization, Data Retrieval, Processing, and Extraction.
 ```
 from bccb.adapter_name import ADAPTER_CLASS
 
@@ -64,7 +64,7 @@ nodes = adapter.get_nodes()
 edges = adapter.get_edges()
 ```
 
-Adapters are designed to integrate seamlessly with BioCypher. You can configure exactly which node properties, edge properties, and edge types the adapter outputs by passing Enum classes during initialization.
+Adapters are designed to integrate seamlessly with BioCypher. In addition, you can configure exactly which node properties, edge properties, and edge types the adapter outputs by passing Enum classes during initialization.
 
 Below is a detailed example using the `Drug` adapter. This demonstrates how to inspect available fields, configure specific outputs, and write the results to Neo4j-importable files using BioCypher.
 ```
@@ -236,4 +236,6 @@ uv pip install -r requirements.txt
 
 ## Data
 
-Neo4j-importable CSV files required to reconstruct the KG are publicly available at [here](https://drive.google.com/file/d/1KoMAxlvy_4IOo8MPi4TrSbMlQtBf8Pch/view?usp=sharing). Embedding files used by adapters publicly available at [here](https://drive.google.com/file/d/1HRUlQ_PaunSH7Rs8ZCihKdiVxiOZrE0W/view?usp=sharing). [MalaCards](https://www.malacards.org/) data used by disease adapter is available at [here](https://drive.google.com/drive/folders/1Yx3yGMccBbyiTNla-hleT7Uza5bivkFW?usp=sharing).
+- Neo4j-importable CSV files required to reconstruct the KG are publicly available at [here](https://drive.google.com/file/d/1KoMAxlvy_4IOo8MPi4TrSbMlQtBf8Pch/view?usp=sharing). 
+- Embedding files used by adapters publicly available at [here](https://drive.google.com/file/d/1HRUlQ_PaunSH7Rs8ZCihKdiVxiOZrE0W/view?usp=sharing). 
+- [MalaCards](https://www.malacards.org/) data used by disease adapter is available at [here](https://drive.google.com/drive/folders/1Yx3yGMccBbyiTNla-hleT7Uza5bivkFW?usp=sharing).
