@@ -234,8 +234,20 @@ Install dependencies:
 uv pip install -r requirements.txt
 ```
 
+If you want to create the **CROssBARv2 KG from scratch**, you should navigate to the `scripts/` directory and use the `create_crossbar.py` script. This script orchestrates the execution of adapter pipelines, processes the data, and produces the final node and edge outputs. Before running the script, you should configure some parameters inside `create_crossbar.py`.
+
+```
+cd scripts
+python create_crossbar.py
+```
+
+
+
 ## Data
 
 - Neo4j-importable CSV files required to reconstruct the KG are publicly available at [here](https://drive.google.com/file/d/1KoMAxlvy_4IOo8MPi4TrSbMlQtBf8Pch/view?usp=sharing). 
 - Embedding files used by adapters publicly available at [here](https://drive.google.com/file/d/1HRUlQ_PaunSH7Rs8ZCihKdiVxiOZrE0W/view?usp=sharing). 
 - [MalaCards](https://www.malacards.org/) data used by disease adapter is available at [here](https://drive.google.com/drive/folders/1Yx3yGMccBbyiTNla-hleT7Uza5bivkFW?usp=sharing).
+- Hugging Face Dataset: The raw node and edge datasets are also hosted on [Hugging Face](https://huggingface.co/datasets/HUBioDataLab/CROssBARv2-KG).
+
+:warning: Note: Please do not confuse the Hugging Face dataset with the Neo4j-importable CSV files linked above. The Neo4j files are pre-processed specifically for the `neo4j-admin import` tool, while the Hugging Face dataset contains the raw node/edge lists.
