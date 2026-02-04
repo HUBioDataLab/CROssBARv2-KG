@@ -259,4 +259,4 @@ This project is licensed under the **GNU Affero General Public License v3.0 (AGP
 
 The AGPL-3.0 is a strong copyleft license that ensures that derivatives of the work, including those modified and offered as a service over a network, remain free and open-source. If you use this software in a network service, you are required to make the source code of your modified version available to the users of that service.
 
-For the full license text, please see the [LICENSE](LICENSE) file included in this repository.
+For the full license text, please see the [LICENSE](LICENSE.md) file included in this repository.
