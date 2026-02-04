@@ -5,6 +5,7 @@
     - [Enum Classes in Adapters](#enum-classes-in-adapters)
   - [Installation](#installation)
   - [Data](#data)
+  - [License](#license)
 
 # CROssBAR-KG
 This is the repo for CROssBARv2 Knowledge Graph (KG) data. CROssBARv2 is a heterogeneous general-purpose biomedical KG-based system. 
@@ -253,7 +254,7 @@ python create_crossbar.py
 :warning: Note: Please do not confuse the Hugging Face dataset with the Neo4j-importable CSV files linked above. The Neo4j files are pre-processed specifically for the `neo4j-admin import` tool, while the Hugging Face dataset contains the raw node/edge lists.
 
 
-# License
+## License
 
 This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
 
