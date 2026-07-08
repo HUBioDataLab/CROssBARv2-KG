@@ -58,7 +58,10 @@ class BioGRID:
         
         self.export_csvs = export_csvs
         self.split_output = split_output
-        self.swissprots = list(uniprot._all_uniprots("*", True))
+        # Swiss-Prot accession list is downloaded lazily in download_biogrid_data()
+        # so that merely constructing the adapter (e.g. for configuration) does not
+        # trigger a large network download.
+        self.swissprots = None
         self.cache = cache
         self.debug = debug
         self.retries = retries        
@@ -115,14 +118,22 @@ class BioGRID:
             # download biogrid data
             self.biogrid_ints = biogrid.biogrid_all_interactions(self.organism, 9999999999, False)
                         
-            # download these fields for mapping from gene symbol to uniprot id          
+            # download these fields for mapping from gene symbol to uniprot id
             self.uniprot_to_gene = uniprot.uniprot_data("gene_names", "*", True)
             self.uniprot_to_tax = uniprot.uniprot_data("organism_id", "*", True)
-            
-            
+
+            # swiss-prot accession list (used as a filter in biogrid_process);
+            # downloaded here (lazily) rather than in __init__.
+            self.swissprots = list(uniprot._all_uniprots("*", True))
+
+
         if self.test_mode:
-            self.biogrid_ints = self.biogrid_ints[:100]            
-                    
+            # Bound the number of raw records so processing stays fast, but keep enough
+            # rows to survive gene->uniprot mapping and the Swiss-Prot filter. The final
+            # sample is trimmed to a small representative set at the end of
+            # biogrid_process() (after mapping/filtering), so it is never empty.
+            self.biogrid_ints = self.biogrid_ints[:10000]
+
         t1 = time()
         logger.info(f'BioGRID data is downloaded in {round((t1-t0) / 60, 2)} mins')
                          
@@ -223,16 +234,20 @@ class BioGRID:
             else:
                 return element
             
-        if any(list(self.aggregate_dict.values())):
-            agg_field_list = [k for k, v in self.aggregate_dict.items() if v]
-            
-            agg_dict = {}            
-            for k, v in self.biogrid_field_new_names.items():
-                if k in agg_field_list:
-                    agg_dict[v] = aggregate_fields
-                else:                
-                    agg_dict[v] = "first"
-        
+        # Build the aggregation map for every selected field. Fields whose aggregate
+        # flag is True are collapsed with aggregate_fields ("|"-joined); all others keep
+        # the first value. This is built unconditionally: previously agg_dict was only
+        # created inside `if any(self.aggregate_dict.values())`, which raised a NameError
+        # when both aggregate_pubmed_ids and aggregate_methods were False.
+        agg_field_list = [k for k, v in self.aggregate_dict.items() if v]
+
+        agg_dict = {}
+        for k, v in self.biogrid_field_new_names.items():
+            if k in agg_field_list:
+                agg_dict[v] = aggregate_fields
+            else:
+                agg_dict[v] = "first"
+
         biogrid_df_unique = biogrid_df_unique.groupby(["uniprot_a", "uniprot_b"], sort=False, as_index=False).aggregate(agg_dict)
         #biogrid_df_unique["pubmed_id"].replace("", np.nan, inplace=True)
         
@@ -240,6 +255,12 @@ class BioGRID:
             biogrid_df_unique = biogrid_df_unique[~biogrid_df_unique[["uniprot_a", "uniprot_b", self.biogrid_field_new_names["experimental_system"]]].apply(frozenset, axis=1).duplicated()].reset_index(drop=True)
         else:
             biogrid_df_unique = biogrid_df_unique[~biogrid_df_unique[["uniprot_a", "uniprot_b"]].apply(frozenset, axis=1).duplicated()].reset_index(drop=True)
+
+        # In test mode, trim to a small representative sample AFTER mapping, the
+        # Swiss-Prot filter and deduplication, so the sample is never empty (unlike
+        # trimming the raw records before mapping in download_biogrid_data()).
+        if self.test_mode:
+            biogrid_df_unique = biogrid_df_unique.head(100).reset_index(drop=True)
 
         if self.export_csvs:
             biogrid_output_path = self.export_dataframe(biogrid_df_unique, "biogrid")
