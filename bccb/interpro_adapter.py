@@ -363,13 +363,6 @@ class InterPro:
 
             if self.early_stopping and counter == self.early_stopping:
                 break
-            node_list.append((domain_id, node_label, props))
-
-            counter += 1
-
-            if self.early_stopping and counter == self.early_stopping:
-                break
-
         t1 = time()
         logger.info(f"InterPro nodes created in {round((t1-t0) / 60, 2)} mins")
 
