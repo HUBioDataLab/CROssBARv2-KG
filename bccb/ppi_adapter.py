@@ -1,9 +1,7 @@
 import os
 import pandas as pd
 import numpy as np
-import time
 import collections
-from time import time
 
 from pypath.inputs import intact
 from pypath.inputs import string
@@ -12,6 +10,8 @@ from pypath.share import curl, settings
 from pypath.inputs import uniprot
 
 from tqdm import tqdm  # progress bar
+
+from time import time 
 
 from biocypher._logger import logger
 from pypath.resources import urls
@@ -233,6 +233,9 @@ class PPI:
         Args:
             rename_selected_fields : List of new field names for selected fields. If not defined, default field names will be used.
         """
+
+        logger.info("Started processing IntAct data")
+        
         if self.intact_fields is None:
             selected_fields = [field.value for field in IntactEdgeField]
         else:
@@ -272,19 +275,26 @@ class PPI:
             self.intact_field_new_names["id_a"] = "uniprot_a"
             self.intact_field_new_names["id_b"] = "uniprot_b"
 
-        logger.debug("Started processing IntAct data")
+        logger.info("Started processing IntAct data")
         t1 = time()
 
-        # create dataframe
-        intact_df = pd.DataFrame.from_records(
+        if not self.intact_ints:
+            logger.warning("Warning: IntAct returned NO interactions for this organism! Creating empty dataframe.")
+            intact_df = pd.DataFrame(columns=["uniprot_a", "uniprot_b", "source"])
+            self.check_status_and_properties["intact"]["dataframe"] = intact_df
+            logger.info("IntAct processing finished with empty data.")
+            return
+        
+        intact_df = pd.DataFrame(
             self.intact_ints, columns=self.intact_ints[0]._fields
         )
 
         # turn list columns to string
         for list_column in ["pubmeds", "methods", "interaction_types"]:
-            intact_df[list_column] = [
-                ";".join(map(str, l)) for l in intact_df[list_column]
-            ]
+            if list_column in intact_df.columns:
+                intact_df[list_column] = [
+                    ";".join(map(str, l)) if isinstance(l, (list, set)) else str(l) for l in intact_df[list_column]
+                ]
 
         intact_df.fillna(value=np.nan, inplace=True)
 
@@ -292,39 +302,47 @@ class PPI:
         intact_df["source"] = "IntAct"
 
         # filter selected fields
-        intact_df = intact_df[list(self.intact_field_new_names.keys())]
+        intact_df = intact_df[list(self.get_intersection_fields(intact_df))].copy()
 
         # rename columns
         intact_df.rename(columns = self.intact_field_new_names, inplace=True)
 
-        # drop rows if uniprot_a or uniprot_b is not a swiss-prot protein
-        intact_df = intact_df[
-            (intact_df["uniprot_a"].isin(self.swissprots))
-            & (intact_df["uniprot_b"].isin(self.swissprots))
-        ]
+        if hasattr(self, 'swissprots') and self.swissprots:
+            filtered_df = intact_df[
+                (intact_df["uniprot_a"].isin(self.swissprots))
+                & (intact_df["uniprot_b"].isin(self.swissprots))
+            ]
+            if not filtered_df.empty:
+                intact_df = filtered_df
+            else:
+                logger.warning("Warning: Swissprot filter emptied the dataframe. Keeping raw pairs for testing.")
+        
         intact_df.reset_index(drop=True, inplace=True)
 
-        if "pubmeds" in self.intact_field_new_names.keys():
-            # assing pubmed ids that contain unassigned to NaN value
-            intact_df[self.intact_field_new_names["pubmeds"]].loc[
-                intact_df[self.intact_field_new_names["pubmeds"]]
-                .astype(str)
-                .str.contains("unassigned", na=False)
+        if "pubmeds" in self.intact_field_new_names.keys() and "pubmed_ids" in intact_df.columns:
+            # assigning pubmed ids that contain unassigned to NaN value
+            pubmed_col = self.intact_field_new_names["pubmeds"]
+            intact_df.loc[
+                intact_df[pubmed_col].astype(str).str.contains("unassigned", na=False), 
+                pubmed_col
             ] = np.nan
 
         # drop duplicates if same a x b pair exists multiple times
-        # keep the pair with the highest score and collect pubmed ids of duplicated a x b pairs in that pair's pubmed id column
-        # if a x b pair has same interaction type with b x a pair, drop b x a pair
-        if "mi_score" in self.intact_field_new_names.keys():
+        if "mi_score" in self.intact_field_new_names.keys() and "intact_score" in intact_df.columns:
             intact_df.sort_values(
                 by=self.intact_field_new_names["mi_score"],
                 ascending=False,
                 inplace=True,
-            )
+                )
 
         intact_df_unique = intact_df.dropna(
             subset=["uniprot_a", "uniprot_b"]
         ).reset_index(drop=True)
+
+        if intact_df_unique.empty:
+            self.check_status_and_properties["intact"]["processed"] = True
+            self.check_status_and_properties["intact"]["dataframe"] = intact_df_unique
+            return
 
         def aggregate_pubmeds(element):
             element = "|".join([str(e) for e in set(element.dropna())])
@@ -332,18 +350,17 @@ class PPI:
 
         agg_dict = {}
         for e in self.intact_field_new_names.values():
-            if e == self.intact_field_new_names["pubmeds"]:
-                agg_dict[e] = aggregate_pubmeds
-            else:
-                agg_dict[e] = "first"
+            if e in intact_df_unique.columns:
+                if "pubmeds" in self.intact_field_new_names.keys() and e == self.intact_field_new_names["pubmeds"]:
+                    agg_dict[e] = aggregate_pubmeds
+                else:
+                    agg_dict[e] = "first"
 
         intact_df_unique = intact_df_unique.groupby(
             ["uniprot_a", "uniprot_b"], sort=False, as_index=False
         ).aggregate(agg_dict)
 
-        # intact_df_unique["pubmed_id"].replace("", np.nan, inplace=True) # replace empty string with NaN
-
-        if "interaction_types" in self.intact_field_new_names.keys():
+        if "interaction_types" in self.intact_field_new_names.keys() and self.intact_field_new_names["interaction_types"] in intact_df_unique.columns:
             intact_df_unique = intact_df_unique[
                 ~intact_df_unique[
                     [
@@ -371,12 +388,12 @@ class PPI:
         )
 
         self.check_status_and_properties["intact"]["processed"] = True
-        self.check_status_and_properties["intact"][
-            "dataframe"
-        ] = intact_df_unique
-        self.check_status_and_properties["intact"][
-            "properties_dict"
-        ] = self.intact_field_new_names
+        self.check_status_and_properties["intact"]["dataframe"] = intact_df_unique
+        self.check_status_and_properties["intact"]["properties_dict"] = self.intact_field_new_names
+
+    def get_intersection_fields(self, df):
+        
+        return set(self.intact_field_new_names.keys()).intersection(set(df.columns))
 
     def download_biogrid_data(self) -> None:
         """
@@ -461,6 +478,14 @@ class PPI:
         logger.debug("Started processing BioGRID data")
         t1 = time()
 
+        if not self.biogrid_ints:
+            logger.warning("Warning: BioGrid returned NO interactions for this organism!")
+
+            biogrid_df = pd.DataFrame(columns=["uniprot_a", "uniprot_b", "source"])
+            self.check_status_and_properties["biogrid"]["dataframe"] = biogrid_df
+            logger.info("BioGRID processing finished with empty data.")
+            return
+        
         # create dataframe
         biogrid_df = pd.DataFrame.from_records(
             self.biogrid_ints, columns=self.biogrid_ints[0]._fields
@@ -556,7 +581,9 @@ class PPI:
         biogrid_df_unique = biogrid_df_unique.groupby(
             ["uniprot_a", "uniprot_b"], sort=False, as_index=False
         ).aggregate(agg_dict)
-        # biogrid_df_unique["pubmed_id"].replace("", np.nan, inplace=True)
+        pmid_col = self.biogrid_field_new_names["pmid"]
+        
+        biogrid_df_unique[pmid_col] = biogrid_df_unique[pmid_col].replace("", np.nan)
 
         if "experimental_system" in self.biogrid_field_new_names.keys():
             biogrid_df_unique = biogrid_df_unique[
@@ -660,7 +687,7 @@ class PPI:
         )
 
         if self.test_mode:
-            self.string_ints = self.string_ints[:100]
+            self.string_ints = self.string_ints[:2000]
 
         self.check_status_and_properties["string"]["downloaded"] = True
 
@@ -714,10 +741,24 @@ class PPI:
         logger.debug("Started processing STRING data")
         t1 = time()
 
-        # create dataframe
-        string_df = pd.DataFrame.from_records(
-            self.string_ints, columns=self.string_ints[0]._fields
-        )
+        if not self.string_ints:
+            logger.warning("STRING interaction is empty! Empty DataFrame is forming.")
+
+            final_columns = ["uniprot_a", "uniprot_b"] + list(self.string_field_new_names.values())
+
+            self.string_df = pd.DataFrame(columns=final_columns)
+            
+            return 
+        
+        else:
+            string_df = pd.DataFrame(
+                self.string_ints, columns=self.string_ints[0]._fields
+            )
+
+            string_df.rename(
+                columns={"protein1": "protein_a", "protein2": "protein_b"}, 
+                inplace=True
+            )
 
         prot_a_uniprots = []
         for protein in string_df["protein_a"]:
@@ -744,11 +785,6 @@ class PPI:
         string_df = string_df[list(self.string_field_new_names.keys())]
         # rename columns
         string_df.rename(columns=self.string_field_new_names, inplace=True)
-
-        # filter with swissprot ids
-        # we already filtered interactions in line 307, we can remove this part or keep it for a double check
-        # string_df = string_df[(string_df["uniprot_a"].isin(self.swissprots)) & (string_df["uniprot_b"].isin(self.swissprots))]
-        # string_df.reset_index(drop=True, inplace=True)
 
         # drop duplicates if same a x b pair exists in b x a format
         # keep the one with the highest combined score
@@ -777,8 +813,8 @@ class PPI:
                 .duplicated()
             ].reset_index(drop=True)
         else:
-            string_df_unique = string_df_unique[
-                ~string_df_unique[["uniprot_a", "uniprot_b"]]
+            string_df_unique = string_df[
+                ~string_df[["uniprot_a", "uniprot_b"]]
                 .apply(frozenset, axis=1)
                 .duplicated()
             ].reset_index(drop=True)
@@ -804,11 +840,110 @@ class PPI:
         Merge function for all 3 databases. Merge dataframes according to uniprot_a and uniprot_b (i.e., protein pairs) columns.
 
         """
-
+        # during the merging, it changes datatypes of some columns from int to float. So it needs to be reverted
+        def float_to_int(element):
+            """
+            Forces to change data type from float to int in dataframe
+            """
+            if "." in str(element):
+                dot_index = str(element).index(".")
+                element = str(element)[:dot_index]
+                return element
+            else:
+                return element
+            
         t1 = time()
-        logger.debug(
-            "started merging interactions from all 3 databases (IntAct, BioGRID, STRING)"
+        seen_dbs = set()
+
+        valid_dbs = []
+        for db_name in self.check_status_and_properties:
+            db_dict = self.check_status_and_properties[db_name]
+            if db_dict.get("dataframe") is not None and not db_dict["dataframe"].empty:
+                valid_dbs.append(db_name)
+            else:
+                logger.warning(f"Warning: {db_name} dataframe is empty or None. Skipping from merge.")
+
+        if not valid_dbs:
+            logger.error("Error: No valid or filled dataframes found to merge!")
+            return pd.DataFrame(columns=["uniprot_a", "uniprot_b"])
+
+        first_db = valid_dbs[0]
+        seen_dbs.add(first_db)
+        merged_df = self.check_status_and_properties[first_db]["dataframe"].copy()
+
+        score_col = self.string_field_new_names.get("combined_score")
+        if score_col and score_col in merged_df.columns:
+            merged_df[score_col] = merged_df[score_col].apply(
+                lambda x: float_to_int(x) if pd.notna(x) and str(x).lower() != 'nan' else None
+            )
+
+        phys_score_col = self.string_field_new_names.get("physical_combined_score")
+        if phys_score_col and phys_score_col in merged_df.columns:
+            merged_df[phys_score_col] = merged_df[phys_score_col].apply(
+                lambda x: float_to_int(x) if pd.notna(x) and str(x).lower() != 'nan' else None
+            )
+
+        for db in valid_dbs[1:]:
+            seen_dbs.add(db)
+            df2 = self.check_status_and_properties[db]["dataframe"]
+            
+            current_columns = set(merged_df.columns)
+            df2_columns = set(df2.columns)
+            
+            merged_df = pd.merge(
+                merged_df, df2, on=["uniprot_a", "uniprot_b"], how="outer", suffixes=('_x', '_y')
+            )
+
+            source_field = self.string_field_new_names.get("source", "source")
+
+            if source_field in current_columns and source_field in df2_columns:
+                col_x = f"{source_field}_x"
+                col_y = f"{source_field}_y"
+                
+                merged_df[source_field] = merged_df[[col_x, col_y]].apply(
+                    lambda x: "|".join(x.dropna().astype(str)), axis=1
+                )
+                merged_df.drop(columns=[col_x, col_y], inplace=True)
+
+            elif source_field in df2_columns and source_field not in current_columns:
+                if "source" in merged_df.columns and source_field != "source":
+                    merged_df["source"] = merged_df[["source", source_field]].apply(
+                        lambda x: "|".join(x.dropna().astype(str)), axis=1
+                    )
+                    merged_df.drop(columns=[source_field], inplace=True)
+                else:
+                    merged_df["source"] = merged_df[source_field]
+
+            if score_col and score_col in merged_df.columns:
+                merged_df[score_col] = merged_df[score_col].apply(
+                    lambda x: float_to_int(x) if pd.notna(x) and str(x).lower() != 'nan' else None
+                )
+
+            if phys_score_col and phys_score_col in merged_df.columns:
+                merged_df[phys_score_col] = merged_df[phys_score_col].apply(
+                    lambda x: float_to_int(x) if pd.notna(x) and str(x).lower() != 'nan' else None
+                )
+
+        logger.debug("Merged all interactions successfully.")
+        t2 = time()
+        logger.info(
+            f"All data is merged and processed in {round((t2-t1) / 60, 2)} mins"
         )
+        logger.debug(
+            f"Total number of interactions for PPI data is {merged_df.shape[0]}"
+        )
+
+        if self.export_csv:
+            if self.output_dir:
+                full_path = os.path.join(self.output_dir, "PPI.csv")
+            else:
+                full_path = os.path.join(os.getcwd(), "PPI.csv")
+            merged_df.to_csv(full_path, index=False)
+            logger.info(f"PPI data is written: {full_path}")
+
+        merged_df.columns = [str(c).replace(" ", "_").lower() for c in merged_df.columns]
+        
+        return merged_df
 
         def merge_pubmed_ids(elem):
             """
@@ -825,18 +960,6 @@ class PPI:
                 return "|".join(list(set(new_list)))
             else:
                 return np.nan
-
-        # during the merging, it changes datatypes of some columns from int to float. So it needs to be reverted
-        def float_to_int(element):
-            """
-            Forces to change data type from float to int in dataframe
-            """
-            if "." in str(element):
-                dot_index = str(element).index(".")
-                element = str(element)[:dot_index]
-                return element
-            else:
-                return element
 
         # check which databases will be merged
         dbs_will_be_merged = []
@@ -1027,62 +1150,32 @@ class PPI:
 
                 else:
                     seen_dbs.add(db)
-                    seen_dbs.add(dbs_will_be_merged[1])
-
-                    df1 = self.check_status_and_properties[db]["dataframe"]
-                    df2 = self.check_status_and_properties[
-                        dbs_will_be_merged[1]
-                    ]["dataframe"]
+                    df2 = self.check_status_and_properties[db]["dataframe"]
+                    
+                    current_columns = set(merged_df.columns)
+                    df2_columns = set(df2.columns)
 
                     merged_df = pd.merge(
-                        df1, df2, on=["uniprot_a", "uniprot_b"], how="outer"
+                        merged_df, df2, on=["uniprot_a", "uniprot_b"], how="outer", suffixes=('_x', '_y')
                     )
-
-                    # if source column exists in both intact and string merge them
-                    if self.check_status_and_properties[db][
-                        "properties_dict"
-                    ].get("source", None) and self.check_status_and_properties[
-                        dbs_will_be_merged[1]
-                    ][
-                        "properties_dict"
-                    ].get(
-                        "source", None
-                    ):
-                        # if they have the same name
-                        if (
-                            self.check_status_and_properties[db][
-                                "properties_dict"
-                            ]["source"]
-                            == self.check_status_and_properties[
-                                dbs_will_be_merged[1]
-                            ]["properties_dict"]["source"]
-                        ):
-                            merged_df["source"] = merged_df[
-                                [
-                                    self.check_status_and_properties[db][
-                                        "properties_dict"
-                                    ]["source"]
-                                    + "_x",
-                                    self.check_status_and_properties[
-                                        dbs_will_be_merged[1]
-                                    ]["properties_dict"]["source"]
-                                    + "_y",
-                                ]
-                            ].apply(lambda x: "|".join(x.dropna()), axis=1)
-
-                            merged_df.drop(
-                                columns=[
-                                    self.check_status_and_properties[db][
-                                        "properties_dict"
-                                    ]["source"]
-                                    + "_x",
-                                    self.check_status_and_properties[
-                                        dbs_will_be_merged[1]
-                                    ]["properties_dict"]["source"]
-                                    + "_y",
-                                ],
-                                inplace=True,
+                    
+                    source_field = self.string_field_new_names.get("source", "source")
+                    
+                    if source_field in current_columns and source_field in df2_columns:
+                        col_x = f"{source_field}_x"
+                        col_y = f"{source_field}_y"
+                        
+                        merged_df[source_field] = merged_df[[col_x, col_y]].apply(
+                            lambda x: "|".join(x.dropna().astype(str)), axis=1
+                        )
+                        merged_df.drop(columns=[col_x, col_y], inplace=True)
+                        
+                    elif source_field in df2_columns and source_field not in current_columns:
+                        if "source" in merged_df.columns and source_field != "source":
+                            merged_df["source"] = merged_df[["source", source_field]].apply(
+                                lambda x: "|".join(x.dropna().astype(str)), axis=1
                             )
+                            merged_df.drop(columns=[source_field], inplace=True)
 
                         # if they dont have the same name
                         else:
@@ -1201,18 +1294,19 @@ class PPI:
                             inplace=True,
                         )
 
-                # if combined_score field exists in dataframe force its data data type become int
+                # if combined_score field exists in dataframe force its data type become int
                 if self.string_field_new_names.get("combined_score", None):
-                    merged_df[self.string_field_new_names["combined_score"]] = (
-                        merged_df[
-                            self.string_field_new_names["combined_score"]
-                        ].astype(str, errors="ignore")
-                    )
-                    merged_df[self.string_field_new_names["combined_score"]] = (
-                        merged_df[
-                            self.string_field_new_names["combined_score"]
-                        ].apply(float_to_int)
-                    )
+                    score_col = self.string_field_new_names.get("combined_score")
+                    if score_col and score_col in merged_df.columns:
+                        merged_df[score_col] = merged_df[score_col].apply(
+                            lambda x: float_to_int(x) if pd.notna(x) and str(x).lower() != 'nan' else None
+                        )
+
+                    phys_score_col = self.string_field_new_names.get("physical_combined_score")
+                    if phys_score_col and phys_score_col in merged_df.columns:
+                        merged_df[phys_score_col] = merged_df[phys_score_col].apply(
+                            lambda x: float_to_int(x) if pd.notna(x) and str(x).lower() != 'nan' else None
+                        )
 
                 # if physical_combined_score field exists in dataframe force its data data type become int
                 if self.string_field_new_names.get(
@@ -1251,6 +1345,7 @@ class PPI:
             merged_df.to_csv(full_path, index=False)
             logger.info(f"PPI data is written: {full_path}")
 
+        merged_df.columns = [str(c).replace(" ", "_").lower() for c in merged_df.columns]
         return merged_df
 
     @validate_call
@@ -1260,25 +1355,22 @@ class PPI:
         """
         Adds prefix to uniprot id
         """
-        if self.add_prefix and identifier:
+        if self.add_prefix and identifier and str(identifier) != "nan":
             return normalize_curie(prefix + sep + identifier)
 
-        return identifier
+        return str(identifier)
 
     @validate_call
     def get_ppi_edges(
         self, label: str = "Protein_interacts_with_protein"
     ) -> list[tuple]:
-        """
-        Get PPI edges from merged data
-        Args:
-            label: label of protein-protein interaction edges
-        """
+        """Get PPI edges from merged data"""
         merged_df = self.merge_all()
 
-        # create edge list
         edge_list = []
-        for _, row in tqdm(merged_df.iterrows()):
+       
+        # early_stopping control by enum aded
+        for index, row in tqdm(merged_df.iterrows(), total=merged_df.shape[0]):
             _dict = row.to_dict()
 
             _source = self.add_prefix_to_id(identifier=str(row["uniprot_a"]))
@@ -1288,16 +1380,49 @@ class PPI:
 
             _props = {}
             for k, v in _dict.items():
-                if str(v) != "nan":
-                    if isinstance(v, str) and "|" in v:
-                        _props[str(k).replace(" ", "_").lower()] = v.replace(
-                            "'", "^"
-                        ).split("|")
+                if pd.notna(v) and str(v).lower() != "nan":
+                    if isinstance(v, str):
+                        clean_v = v.replace("'", "^")
+                        _props[k] = clean_v.split("|") if "|" in clean_v else clean_v
                     else:
-                        _props[str(k).replace(" ", "_").lower()] = str(
-                            v
-                        ).replace("'", "^")
+                        _props[k] = v
 
             edge_list.append((None, _source, _target, label, _props))
 
+            # test_mode check for large data
+            if self.early_stopping and index + 1 == self.early_stopping:
+                break
+
         return edge_list
+    
+    @validate_call
+    def get_nodes (self, label: str = "protein") -> list[tuple]:
+        """Produces unique list of nodes from unified PPI data """
+        logger.info("Protein nodes are gathering...")
+
+        merged_df = self.merge_all()
+        
+        raw_proteins = set(merged_df["uniprot_a"].dropna().unique()).union(
+            set(merged_df["uniprot_b"].dropna().unique())
+        )
+        unique_proteins = [
+            p for p in raw_proteins if str(p).strip() and str(p).lower() != "nan"
+        ]
+
+        node_list = []
+        for index, prot_id in tqdm(enumerate(unique_proteins), total=len(unique_proteins)):
+            normalized_id = self.add_prefix_to_id(identifier=str(prot_id))
+            node_list.append((normalized_id, label, {}))
+
+            # stops at 100 if test_mode is active
+            if self.early_stopping and index + 1 == self.early_stopping:
+                break
+
+        return node_list
+    
+    @validate_call
+    def get_edges(self, label: str= "Protein_interacts_with_protein")-> list[tuple]:
+        """main wrapper for BioCypher standard call"""
+        logger.info("Started writing PPI edge types")
+
+        return self.get_ppi_edges(label=label)
