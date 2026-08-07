@@ -126,7 +126,12 @@ class TFGene:
         """
 
         with ExitStack() as stack:
-            stack.enter_context(settings.context(retries=retries))
+
+            try:
+                stack.enter_context(settings.context(retries=retries))
+
+            except AttributeError:
+                settings.setup(retries=retries)
 
             if debug:
                 stack.enter_context(curl.debug_on())
@@ -172,12 +177,20 @@ class TFGene:
                 collectri.collectri_interactions()
             )
 
-            self.uniprot_to_entrez = {
-                k: v.strip(";").split(";")[0]
-                for k, v in uniprot.uniprot_data(
-                    "xref_geneid", 9606, True
-                ).items()
-            }
+            # robust effect -> no crash in case of None, cache=on
+            try:
+                uniprot_map = uniprot.uniprot_data("xref_geneid", 9606, True)
+                if uniprot_map:
+                    self.uniprot_to_entrez = {
+                        k: v.strip(";").split(";")[0]
+                        for k, v in uniprot_map.items()
+                        if v
+                    }
+                else:
+                    self.uniprot_to_entrez = {}
+            except Exception as e:
+                logger.warning(f"UniProt mapping skipped due to response error: {e}")
+                self.uniprot_to_entrez = {}
 
         t1 = time()
         logger.info(
@@ -190,17 +203,29 @@ class TFGene:
 
         self.trrust_interactions = []
         self.trrust_gene_symbol_to_entrez_id = {}
+
         if 9606 in self.organism:
-            self.trrust_gene_symbol_to_entrez_id |= {
-                entry["gene_symbol"]: entry["entrez_id"]
-                for entry in trrust.scrape_human()
-            }
+            try:
+                if hasattr(trrust, "scrape_human"):
+                    self.trrust_gene_symbol_to_entrez_id |= {
+                        entry["gene_symbol"]: entry["entrez_id"]
+                        for entry in trrust.scrape_human()
+                    }
+            except Exception as e:
+                logger.warning(f"TRRUST human gene symbol mapping skipped: {e}")
+
             self.trrust_interactions.extend(trrust.trrust_human())
+
         if 10090 in self.organism:
-            self.trrust_gene_symbol_to_entrez_id |= {
-                entry["gene_symbol"]: entry["entrez_id"]
-                for entry in trrust.scrape_mouse()
-            }
+            try:
+                if hasattr(trrust, "scrape_mouse"):
+                    self.trrust_gene_symbol_to_entrez_id |= {
+                        entry["gene_symbol"]: entry["entrez_id"]
+                        for entry in trrust.scrape_mouse()
+                    }
+            except Exception as e:
+                logger.warning(f"TRRUST mouse gene symbol mapping skipped: {e}")
+
             self.trrust_interactions.extend(trrust.trrust_mouse())
 
         t1 = time()
