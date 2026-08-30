@@ -253,7 +253,7 @@ class Pathway:
             self.reactome_chebi_pathway = reactome.reactome_chebis()
             self.chebi_to_drugbank = {
                 list(v)[0]: k
-                for k, v in unichem.unichem_mapping("drugbank", "chebi").items()
+                for k, v in unichem.unichem_mapping("DrugBank", "ChEBI").items()
             }
 
         t1 = time()
@@ -623,7 +623,17 @@ class Pathway:
             else:
                 full_path = os.path.join(os.getcwd(), "Protein_to_pathway.csv")
 
-            merged_df.to_csv(full_path, index=False)
+            export_df = merged_df.copy()
+            export_df["pathway_id"] = export_df.apply(
+                lambda r: self.add_prefix_to_id(prefix="reactome", identifier=r["pathway_id"])
+                if r["source"] == "Reactome"
+                else self.add_prefix_to_id(prefix="kegg.pathway", identifier=r["pathway_id"]),
+                axis=1,
+            )
+            export_df["uniprot_id"] = export_df["uniprot_id"].apply(
+                lambda x: self.add_prefix_to_id(prefix="uniprot", identifier=x)
+            )
+            export_df.to_csv(full_path, index=False)
             logger.info(
                 f"Protein-pathway edge data data is written: {full_path}"
             )
@@ -653,7 +663,17 @@ class Pathway:
             else:
                 full_path = os.path.join(os.getcwd(), "Drug_to_pathway.csv")
 
-            merged_df.to_csv(full_path, index=False)
+            export_df = merged_df.copy()
+            export_df["pathway_id"] = export_df.apply(
+                lambda r: self.add_prefix_to_id(prefix="reactome", identifier=r["pathway_id"])
+                if r["source"] == "Reactome"
+                else self.add_prefix_to_id(prefix="kegg.pathway", identifier=r["pathway_id"]),
+                axis=1,
+            )
+            export_df["drug_id"] = export_df["drug_id"].apply(
+                lambda x: self.add_prefix_to_id(prefix="drugbank", identifier=x)
+            )
+            export_df.to_csv(full_path, index=False)
             logger.info(f"Drug-pathway edge data data is written: {full_path}")
 
         return merged_df
@@ -691,7 +711,16 @@ class Pathway:
             else:
                 full_path = os.path.join(os.getcwd(), "Disease_to_pathway.csv")
 
-            merged_df.to_csv(full_path, index=False)
+            export_df = merged_df.copy()
+            export_df["pathway_id"] = export_df["pathway_id"].apply(
+                lambda x: self.add_prefix_to_id(prefix="reactome", identifier=x)
+                if x.startswith("R-")
+                else self.add_prefix_to_id(prefix="kegg.pathway", identifier=x)
+            )
+            export_df["disease_id"] = export_df["disease_id"].apply(
+                lambda x: self.add_prefix_to_id(prefix="MONDO", identifier=x)
+            )
+            export_df.to_csv(full_path, index=False)
             logger.info(
                 f"Disease-pathway edge data data is written: {full_path}"
             )
