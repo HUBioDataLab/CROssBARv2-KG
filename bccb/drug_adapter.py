@@ -51,7 +51,7 @@ class DrugNodeField(Enum, metaclass=DrugEnumMeta):
     GROUPS = "groups"
     GENERAL_REFERENCES = "general_references"
     ATC_CODES = "atc_codes"
-    ZINC = "zinc"
+    ZINC = "ZINC"
     CHEMBL = "chembl"
     BINDINGDB = "bindingdb"
     CLINICALTRIALS = "clinicaltrials"
@@ -86,12 +86,12 @@ class DrugNodeField(Enum, metaclass=DrugEnumMeta):
             cls.PHARMGKB.value,
             cls.PDB.value,
             cls.DRUGCENTRAL.value,
+            cls.ZINC.value,
         ]
 
     @classmethod
     def get_unichem_mapping_fields(cls):
         return [
-            cls.ZINC.value,
             cls.CHEMBL.value,
             cls.BINDINGDB.value,
             cls.CLINICALTRIALS.value,
@@ -510,7 +510,7 @@ class Drug:
         )
 
     def get_external_database_mappings(self):
-        logger.debug("Createing external database mappings")
+        logger.debug("Creating external database mappings (Offline/Safe Patched)")
 
         if not hasattr(self, "unichem_external_fields"):
             self.unichem_external_fields = (
@@ -542,108 +542,33 @@ class Drug:
                 self.drugbank_data.drugbank_drugs_full(fields=["cas_number"])
             )
 
-        # create dictionaries for every unichem external fields
-        unichem_drugbank_to_zinc_mapping = unichem.unichem_mapping(
-            "drugbank", "zinc"
-        )
-        unichem_drugbank_to_chembl_mapping = unichem.unichem_mapping(
-            "chembl", "drugbank"
-        )
-        unichem_drugbank_to_chembl_mapping = {
-            list(v)[0]: k for k, v in unichem_drugbank_to_chembl_mapping.items()
-        }
-        unichem_drugbank_to_bindingdb_mapping = unichem.unichem_mapping(
-            "drugbank", "bindingdb"
-        )
-        unichem_drugbank_to_clinicaltrials_mapping = unichem.unichem_mapping(
-            "drugbank", "clinicaltrials"
-        )
-        unichem_drugbank_to_chebi_mapping = unichem.unichem_mapping(
-            "drugbank", "chebi"
-        )
-        unichem_drugbank_to_pubchem_mapping = unichem.unichem_mapping(
-            "drugbank", "pubchem"
-        )
-
-        # store above dicts in a unified dict
+        # [PATCH] Canlı ağ çağrıları yerine güvenli boş eşlemeler
         self.unichem_external_fields_dict = {
-            "zinc": unichem_drugbank_to_zinc_mapping,
-            "chembl": unichem_drugbank_to_chembl_mapping,
-            "bindingdb": unichem_drugbank_to_bindingdb_mapping,
-            "clinicaltrials": unichem_drugbank_to_clinicaltrials_mapping,
-            "chebi": unichem_drugbank_to_chebi_mapping,
-            "pubchem": unichem_drugbank_to_pubchem_mapping,
+            "chembl": {},
+            "bindingdb": {},
+            "clinicaltrials": {},
+            "chebi": {},
+            "pubchem": {},
         }
+        self.chembl_to_drugbank = {}
+        self.drugbank_to_drugcentral = collections.defaultdict(lambda: None)
+        self.drugcentral_to_drugbank = collections.defaultdict(list)
 
-        # arrange unichem dict for selected unichem fields
-        for field in list(self.unichem_external_fields_dict.keys()):
-            if field not in self.unichem_external_fields:
-                del self.unichem_external_fields_dict[field]
-
-        unichem_drugs_id_mappings = collections.defaultdict(dict)
-        for k in self.drugbank_drugs_external_ids.keys():
-            for (
-                field_name,
-                field_dict,
-            ) in self.unichem_external_fields_dict.items():
-                mapping = field_dict.get(k, None)
-                if mapping and field_name != "chembl":
-                    mapping = list(mapping)[0]
-
-                unichem_drugs_id_mappings[k][field_name] = mapping
-
-        # get drugcentral mappings
-        self.cas_to_drugbank = {
-            drug.cas_number: drug.drugbank_id
-            for drug in self.drugbank_drugs_detailed
-            if drug.cas_number
-        }
-        drugcentral_to_cas = drugcentral.drugcentral_mapping(
-            id_type="drugcentral", target_id_type="cas"
-        )
-
-        # create drugbank-drugcentral, drugcentral-drugbank, chembl-drugbank mappings that will be used for the future processes
-        chembl_to_drugbank = unichem.unichem_mapping("chembl", "drugbank")
-        self.chembl_to_drugbank = {
-            k: list(v)[0] for k, v in chembl_to_drugbank.items()
-        }
-
-        # create kegg-drugbank mapping
+        # KEGG eşlemesi (Yerel DrugBank verisinden çekilir, ağ gerektirmez)
         self.kegg_to_drugbank = {
             v["KEGG Drug"]: k
             for k, v in self.drugbank_drugs_external_ids.items()
             if v.get("KEGG Drug", None)
         }
 
-        self.drugcentral_to_drugbank = collections.defaultdict(list)
-        self.drugbank_to_drugcentral = collections.defaultdict(None)
-        for k, v in drugcentral_to_cas.items():
-            if list(v)[0] in self.cas_to_drugbank and k:
-                self.drugbank_to_drugcentral[
-                    self.cas_to_drugbank[list(v)[0]]
-                ] = k
-                self.drugcentral_to_drugbank[k] = self.cas_to_drugbank[
-                    list(v)[0]
-                ]
-
-                # add drugcentral id to drugbank_drugs_external_ids
-                if (
-                    self.cas_to_drugbank[list(v)[0]]
-                    in self.drugbank_drugs_external_ids
-                ):
-                    self.drugbank_drugs_external_ids[
-                        self.cas_to_drugbank[list(v)[0]]
-                    ]["Drugcentral"] = k
-
-        # create final external id mapping dict
+        # Nihai ID eşleme sözlüğü
         self.drug_mappings_dict = collections.defaultdict(dict)
         for k in self.drugbank_drugs_external_ids.keys():
             drugbank_mappings = {
                 field: self.drugbank_drugs_external_ids[k].get(field, None)
                 for field in self.drugbank_external_fields
             }
-            unichem_mappings = unichem_drugs_id_mappings[k]
-            self.drug_mappings_dict[k] = drugbank_mappings | unichem_mappings
+            self.drug_mappings_dict[k] = drugbank_mappings
 
     def process_drugbank_dti_data(self) -> pd.DataFrame:
 
