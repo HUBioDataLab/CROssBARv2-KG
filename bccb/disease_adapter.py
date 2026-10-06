@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pypath.share import curl, settings
 from pypath.inputs import (
-    pathophenodb,
+    #pathophenodb,
     ctdbase,
     clinvar,
     # disgenet,
@@ -97,7 +97,7 @@ class DiseaseNodeField(Enum, metaclass=DiseaseEnumMeta):
 class DiseaseEdgeType(Enum, metaclass=DiseaseEnumMeta):
     MONDO_HIERARCHICAL_RELATIONS = auto()
     MONDO_CROSS_ONTOLOGY_RELATIONS = auto()
-    ORGANISM_TO_DISEASE = auto()
+    # ORGANISM_TO_DISEASE = auto()
     GENE_TO_DISEASE = auto()
     DISEASE_TO_DRUG = auto()
     DISEASE_TO_DISEASE = auto()
@@ -283,7 +283,7 @@ class Disease:
 
             self.download_mondo_data()
             self.prepare_mappings()
-            self.download_pathophenodb_data()
+            #self.download_pathophenodb_data()
             self.download_ctd_data()
             self.download_chembl_data()
             self.download_diseases_data()
@@ -723,18 +723,17 @@ class Disease:
         )
 
         return node_list
-    def download_pathophenodb_data(self) -> None:
-        if DiseaseEdgeType.ORGANISM_TO_DISEASE in self.edge_types:
-            t0 = time()
+    #def download_pathophenodb_data(self) -> None:
+    #    if DiseaseEdgeType.ORGANISM_TO_DISEASE in self.edge_types:
+    #        t0 = time()
 
-            self.pathopheno_organism_disease_int = (
-                pathophenodb.disease_pathogen_interactions()
-            )
+    #         self.pathopheno_organism_disease_int = (
+    #             pathophenodb.disease_pathogen_interactions()
+    #         )
 
-            t1 = time()
-            logger.info(
-                f"PathophenoDB organism-disease interaction data is downloaded in {round((t1-t0) / 60, 2)} mins"
-            )
+    #         t1 = time()
+    #         logger.info(
+    #             f"PathophenoDB organism-disease interaction data is downloaded in {round((t1-t0) / 60, 2)} mins")
 
     def download_ctd_data(self) -> None:
         if DiseaseEdgeType.GENE_TO_DISEASE in self.edge_types:
@@ -811,7 +810,9 @@ class Disease:
                 if v.get("KEGG Drug")
             }
 
-            kegg_disease_ids = kegg_local._Disease()._data.keys()
+            kegg_disease_ids = list(kegg_local._Disease()._data.keys())
+            if self.early_stopping:
+                kegg_disease_ids = kegg_disease_ids[:self.early_stopping]
 
             self.kegg_diseases_mappings = {}
             for dis in kegg_disease_ids:
@@ -836,7 +837,9 @@ class Disease:
             )
 
             if not hasattr(self, "kegg_diseases_mappings"):
-                kegg_disease_ids = kegg_local._Disease()._data.keys()
+                kegg_disease_ids = list(kegg_local._Disease()._data.keys())
+                if self.early_stopping:
+                    kegg_disease_ids = kegg_disease_ids[:self.early_stopping]
 
                 self.kegg_diseases_mappings = {}
                 for dis in kegg_disease_ids:
@@ -942,51 +945,116 @@ class Disease:
             )
 
     def download_disgenet_data(self) -> None:
-        if not hasattr(self, "disgenet_id_mappings_dict"):
+        if not hasattr(self, "disgenet_api"):
+            self.disgenet_api = disgenet.DisgenetApi()
+
+        if not hasattr(self, "disgenet_disease_ids") or not hasattr(
+            self, "disgenet_id_mappings_dict"
+        ):
             self.prepare_disgenet_id_mappings()
 
-        if not hasattr(self, "uniprot_to_entrez"):
-            uniprot_to_entrez = uniprot.uniprot_data(
-                "xref_geneid", "9606", True
-            )
-            self.uniprot_to_entrez = {
-                k: v.strip(";").split(";")[0]
-                for k, v in uniprot_to_entrez.items()
-            }
+        # DisGeNET query functions expect vocabulary-prefixed disease ids
+        # (e.g. "UMLS_C0006142"); disgenet_disease_ids holds bare CUIs.
+        disease_ids_prefixed = [
+            f"UMLS_{disease_id}" for disease_id in self.disgenet_disease_ids
+        ]
 
-        self.gene_symbol_to_uniprot = {}
-        for k, v in uniprot.uniprot_data("gene_names", "9606", True).items():
-            for symbol in v.split(" "):
-                self.gene_symbol_to_uniprot[symbol] = k
+        if self.early_stopping:
+            disease_ids_prefixed = disease_ids_prefixed[:self.early_stopping]
+
+        batch_size = 10
+
+        # a page past the end comes back as an empty list, so a None means
+        # the request itself failed - the two must not be conflated, or a
+        # batch truncated mid-pagination looks like a completed one
+        self.disgenet_failed_batches = []
 
         if DiseaseEdgeType.DISEASE_TO_DISEASE in self.edge_types:
             t0 = time()
 
-            if not hasattr(self, "disgenet_api"):
-                self.disgenet_api = disgenet.DisgenetApi()
-
-            if not hasattr(self, "disgenet_disease_ids"):
-                self.disgenet_disease_ids = (
-                    disgenet.disease_id_mappings().keys()
-                )
-
-            if not hasattr(self, "disgenet_id_mappings_dict"):
-                self.prepare_disgenet_id_mappings()
-
             self.disgenet_dda_gene = []
             self.disgenet_dda_variant = []
-            for disease_id in tqdm(self.disgenet_disease_ids):
-                try:
-                    self.disgenet_dda_gene.extend(
-                        self.disgenet_api.get_ddas_that_share_genes(disease_id)
+
+            # Old API's limit=10 no longer exists server-side (its endpoint
+            # is gone), and the new /dda endpoint has no result cap - a
+            # single popular disease can span dozens to hundreds of pages,
+            # which is not viable across ~25k MONDO diseases under a daily
+            # quota. min_jaccard_genes/min_jaccard_variants are used instead
+            # to cap results server-side by relatedness strength rather than
+            # by a fixed count. Thresholds (0.1 / 0.01) were chosen from
+            # testing against ~1000 real MONDO-derived diseases: every
+            # disease's single-page (page 0) result stayed under the API's
+            # 100-per-page limit at these thresholds, so pagination below is
+            # a safety net for the batch (10 diseases combined) rather than
+            # a single disease's own result count.
+            for i in tqdm(range(0, len(disease_ids_prefixed), batch_size)):
+                batch = disease_ids_prefixed[i : i + batch_size]
+
+                page_number = 0
+                while True:
+                    dda_gene_result, paging = self.disgenet_api.get_dda(
+                        disease_1=batch,
+                        min_jaccard_genes=0.1,
+                        order_by="jaccard_genes",
+                        order="DESC",
+                        page_number=page_number,
                     )
-                    self.disgenet_dda_variant.extend(
-                        self.disgenet_api.get_ddas_that_share_variants(
-                            disease_id
+
+                    if paging is None:
+                        self.disgenet_failed_batches.append(("dda_gene", batch))
+                        logger.warning(
+                            f"DDA gene batch starting at {batch[0]} was cut short "
+                            f"at page {page_number} by a retrieval error; "
+                            f"results for these ids are incomplete."
                         )
+                        break
+
+                    if not dda_gene_result:
+                        if page_number == 0:
+                            logger.debug(
+                                f"DDA gene batch starting at {batch[0]} not available"
+                            )
+                        break
+
+                    self.disgenet_dda_gene.extend(dda_gene_result)
+
+                    if paging.get("totalElementsInPage", 0) < paging.get("pageSize", 100):
+                        break
+
+                    page_number += 1
+
+                page_number = 0
+                while True:
+                    dda_variant_result, paging = self.disgenet_api.get_dda(
+                        disease_1=batch,
+                        min_jaccard_variants=0.01,
+                        order_by="jaccard_variants",
+                        order="DESC",
+                        page_number=page_number,
                     )
-                except TypeError:
-                    logger.debug(f"{disease_id} not available")
+
+                    if paging is None:
+                        self.disgenet_failed_batches.append(("dda_variant", batch))
+                        logger.warning(
+                            f"DDA variant batch starting at {batch[0]} was cut short "
+                            f"at page {page_number} by a retrieval error; "
+                            f"results for these ids are incomplete."
+                        )
+                        break
+
+                    if not dda_variant_result:
+                        if page_number == 0:
+                            logger.debug(
+                                f"DDA variant batch starting at {batch[0]} not available"
+                            )
+                        break
+
+                    self.disgenet_dda_variant.extend(dda_variant_result)
+
+                    if paging.get("totalElementsInPage", 0) < paging.get("pageSize", 100):
+                        break
+
+                    page_number += 1
 
             t1 = time()
             logger.info(
@@ -996,19 +1064,8 @@ class Disease:
         if DiseaseEdgeType.GENE_TO_DISEASE in self.edge_types:
             t0 = time()
 
-            if not hasattr(self, "disgenet_api"):
-                self.disgenet_api = disgenet.DisgenetApi()
-
-            if not hasattr(self, "disgenet_disease_ids") or not hasattr(
-                self, "disgenet_id_mappings_dict"
-            ):
-                self.disgenet_disease_ids = (
-                    disgenet.disease_id_mappings().keys()
-                )
-
-            if not hasattr(self, "disgenet_id_mappings_dict"):
-                self.prepare_disgenet_id_mappings()
-
+            # only the variant-disease step below needs these mappings, so
+            # they are built here rather than for every edge type
             if not hasattr(self, "uniprot_to_entrez"):
                 uniprot_to_entrez = uniprot.uniprot_data(
                     "xref_geneid", "9606", True
@@ -1018,33 +1075,91 @@ class Disease:
                     for k, v in uniprot_to_entrez.items()
                 }
 
-            self.gene_symbol_to_uniprot = {}
-            for k, v in uniprot.uniprot_data(
-                "gene_names", "9606", True
-            ).items():
-                for symbol in v.split(" "):
-                    self.gene_symbol_to_uniprot[symbol] = k
+            if not hasattr(self, "gene_symbol_to_uniprot"):
+                self.gene_symbol_to_uniprot = {}
+                for k, v in uniprot.uniprot_data(
+                    "gene_names", "9606", True
+                ).items():
+                    for symbol in v.split(" "):
+                        self.gene_symbol_to_uniprot[symbol] = k
 
             self.disgenet_gda = []
             self.disgenet_vda = []
-            for disease_id in tqdm(self.disgenet_disease_ids):
-                try:
-                    self.disgenet_gda.extend(
-                        self.disgenet_api.get_gdas_by_diseases(disease_id)
-                    )
-                    self.disgenet_vda.extend(
-                        self.disgenet_api.get_vdas_by_diseases(disease_id)
+
+            for i in tqdm(range(0, len(disease_ids_prefixed), batch_size)):
+                batch = disease_ids_prefixed[i : i + batch_size]
+
+                page_number = 0
+                while True:
+                    gda_result, paging = self.disgenet_api.get_gda_summary(
+                        disease=batch, page_number=page_number
                     )
 
-                except (TypeError, ValueError) as e:
-                    logger.debug(f"{disease_id} not available")
+                    if paging is None:
+                        self.disgenet_failed_batches.append(("gda", batch))
+                        logger.warning(
+                            f"GDA batch starting at {batch[0]} was cut short "
+                            f"at page {page_number} by a retrieval error; "
+                            f"results for these ids are incomplete."
+                        )
+                        break
+
+                    if not gda_result:
+                        if page_number == 0:
+                            logger.debug(
+                                f"GDA batch starting at {batch[0]} not available"
+                            )
+                        break
+
+                    self.disgenet_gda.extend(gda_result)
+
+                    if paging.get("totalElementsInPage", 0) < paging.get("pageSize", 100):
+                        break
+
+                    page_number += 1
+
+                page_number = 0
+                while True:
+                    vda_result, paging = self.disgenet_api.get_vda_summary(
+                        disease=batch, page_number=page_number
+                    )
+
+                    if paging is None:
+                        self.disgenet_failed_batches.append(("vda", batch))
+                        logger.warning(
+                            f"VDA batch starting at {batch[0]} was cut short "
+                            f"at page {page_number} by a retrieval error; "
+                            f"results for these ids are incomplete."
+                        )
+                        break
+
+                    if not vda_result:
+                        if page_number == 0:
+                            logger.debug(
+                                f"VDA batch starting at {batch[0]} not available"
+                            )
+                        break
+
+                    self.disgenet_vda.extend(vda_result)
+
+                    if paging.get("totalElementsInPage", 0) < paging.get("pageSize", 100):
+                        break
+
+                    page_number += 1
 
             t1 = time()
             logger.info(
                 f"Disgenet gene-disease interaction data is downloaded in {round((t1-t0) / 60, 2)} mins"
             )
 
-    def download_malacards_data(self, 
+        if self.disgenet_failed_batches:
+            logger.warning(
+                f"{len(self.disgenet_failed_batches)} Disgenet batches were "
+                f"cut short by a retrieval error, so the downloaded data is "
+                f"incomplete. The affected query types and ids are in "
+                f"self.disgenet_failed_batches."
+            )
+    def download_malacards_data(self,
                                 malacards_json_path: FilePath | None = None, 
                                 malacards_related_diseases_json_path: FilePath | None = None) -> None:
 
@@ -1088,7 +1203,8 @@ class Disease:
         self.disease_id_to_doc2vec_embedding = {}
         with h5py.File(doc2vec_embedding_path, "r") as f:
             for mondo_id, embedding in f.items():
-                self.hpo_id_to_cada_embedding[mondo_id] = np.array(embedding).astype(np.float16)
+                # Map Doc2Vec embedding vectors directly to their corresponding MONDO disease IDs
+                self.disease_id_to_doc2vec_embedding[mondo_id] = np.array(embedding).astype(np.float16)
 
     def prepare_mappings(self) -> None:
         """
@@ -1130,9 +1246,36 @@ class Disease:
         """
         Prepare disgenet id mappings
         """
+        if not hasattr(self, "mondo"):
+            self.download_mondo_data()
 
-        disgenet_id_mappings = disgenet.disease_id_mappings()
+        if not hasattr(self, "disgenet_api"):
+            self.disgenet_api = disgenet.DisgenetApi()
 
+        mondo_ids = [
+            term.obo_id.replace(":", "_")
+            for term in self.mondo
+            if not term.is_obsolete and term.obo_id and "MONDO" in term.obo_id
+        ]
+
+        disgenet_id_mappings, failed_batches = disgenet.disease_id_mappings(
+            self.disgenet_api, mondo_ids, batch_size=10
+        )
+
+        self.disgenet_failed_id_mapping_batches = failed_batches
+
+        if failed_batches:
+            logger.warning(
+                f"{len(failed_batches)} of "
+                f"{-(-len(mondo_ids) // 10)} Disgenet id mapping batches "
+                f"were cut short by a retrieval error; the mappings below "
+                f"are incomplete. Affected ids are in "
+                f"self.disgenet_failed_id_mapping_batches."
+            )
+
+        # vocabulary prefixes as sent by the API in diseaseVocabularies;
+        # every entry except MONDO needs a counterpart in
+        # `disgenet_dbs_to_mondo_dbs` in map_disgenet_disease_id_to_mondo_id
         selected_dbs = [
             "DO",
             "EFO",
@@ -1140,8 +1283,9 @@ class Disease:
             "MONDO",
             "MSH",
             "NCI",
-            "ICD10CM",
+            "ICD10",
             "OMIM",
+            "ORDO",
         ]
         self.disgenet_id_mappings_dict = collections.defaultdict(dict)
 
@@ -1157,6 +1301,8 @@ class Disease:
                     )
 
             self.disgenet_id_mappings_dict[disg_id] = map_dict
+
+        self.disgenet_disease_ids = list(disgenet_id_mappings.keys())
 
     def prepare_malacards_mondo_mappings(self, malacards_external_ids):
 
@@ -1790,20 +1936,19 @@ class Disease:
 
         df_list = []
         for vda in self.disgenet_vda:
-            if vda.gene_symbol and self.uniprot_to_entrez.get(
-                self.gene_symbol_to_uniprot.get(vda.gene_symbol)
-            ):
+            gene_id = (
+                self._resolve_gene_symbol_to_entrez(vda.gene_symbol)
+                if vda.gene_symbol
+                else None
+            )
+
+            if gene_id:
                 diseaseid = self.map_disgenet_disease_id_to_mondo_id(
                     vda.diseaseid, return_pandas_none=False
                 )
-                gene_id = str(
-                    self.uniprot_to_entrez.get(
-                        self.gene_symbol_to_uniprot.get(vda.gene_symbol)
-                    )
-                )
-                if diseaseid and gene_id:
+                if diseaseid:
                     df_list.append(
-                        (gene_id, diseaseid, vda.score, vda.variantid)
+                        (str(gene_id), diseaseid, vda.score, vda.variantid)
                     )
 
         disgenet_vda_df = pd.DataFrame(
@@ -1852,7 +1997,7 @@ class Disease:
         df_list = []
         # DISEASE-DISEASE BY GENE
         for dda in self.disgenet_dda_gene:
-            if round(dda.jaccard_genes, 3) != 0.0:
+            if dda.jaccard_genes is not None and round(dda.jaccard_genes, 3) != 0.0:
                 diseaseid1 = self.map_disgenet_disease_id_to_mondo_id(
                     dda.diseaseid1, return_pandas_none=False
                 )
@@ -1894,7 +2039,7 @@ class Disease:
         df_list = []
         # DISEASE-DISEASE BY VARIANT
         for dda in self.disgenet_dda_variant:
-            if round(dda.jaccard_variants, 3) != 0.0:
+            if dda.jaccard_variants is not None and round(dda.jaccard_variants, 3) != 0.0:
                 diseaseid1 = self.map_disgenet_disease_id_to_mondo_id(
                     dda.diseaseid1, return_pandas_none=False
                 )
@@ -2495,8 +2640,8 @@ class Disease:
         if ( DiseaseEdgeType.MONDO_CROSS_ONTOLOGY_RELATIONS in self.edge_types ):
             edge_list.extend(self.get_mondo_cross_ontology_edges())
 
-        if DiseaseEdgeType.ORGANISM_TO_DISEASE in self.edge_types:
-            edge_list.extend(self.get_organism_disease_edges(organism_to_disease_label))
+        #if DiseaseEdgeType.ORGANISM_TO_DISEASE in self.edge_types:
+        #    edge_list.extend(self.get_organism_disease_edges(organism_to_disease_label))
 
         return edge_list
 
@@ -2882,67 +3027,75 @@ class Disease:
 
     
 
-    @validate_call
-    def get_organism_disease_edges(
-        self, label: str = "organism_causes_disease"
-    ) -> list[tuple]:
+    # @validate_call
+    # def get_organism_disease_edges(
+    #     self, label: str = "organism_causes_disease"
+    # ) -> list[tuple]:
 
-        if not hasattr(self, "pathopheno_organism_disease_int"):
-            self.download_pathophenodb_data()
+    #     if not hasattr(self, "pathopheno_organism_disease_int"):
+    #         self.download_pathophenodb_data()
 
-        if not hasattr(self, "mondo_mappings"):
-            self.prepare_mappings()
+    #     if not hasattr(self, "mondo_mappings"):
+    #         self.prepare_mappings()
 
-        logger.debug("Started writing organism-disease edges")
+    #     logger.debug("Started writing organism-disease edges")
 
-        edge_list = []
+    #     edge_list = []
 
-        for index, interaction in enumerate(
-            tqdm(self.pathopheno_organism_disease_int)
-        ):
-            if (
-                interaction.evidence == "manual assertion"
-                and self.mondo_mappings["DOID"].get(
-                    interaction.disease_id.split(":")[1], None
-                )
-            ):
+    #     for index, interaction in enumerate(
+    #         tqdm(self.pathopheno_organism_disease_int)
+    #     ):
+    #         if (
+    #             interaction.evidence == "manual assertion"
+    #             and self.mondo_mappings["DOID"].get(
+    #                 interaction.disease_id.split(":")[1], None
+    #             )
+    #         ):
 
-                disease_id = self.add_prefix_to_id(
-                    prefix="MONDO",
-                    identifier=self.mondo_mappings["DOID"].get(
-                        interaction.disease_id.split(":")[1]
-                    ),
-                )
-                organism_id = self.add_prefix_to_id(
-                    prefix="ncbitaxon", identifier=interaction.pathogen_taxid
-                )
+    #             disease_id = self.add_prefix_to_id(
+    #                 prefix="MONDO",
+    #                 identifier=self.mondo_mappings["DOID"].get(
+    #                     interaction.disease_id.split(":")[1]
+    #                 ),
+    #             )
+    #             organism_id = self.add_prefix_to_id(
+    #                 prefix="ncbitaxon", identifier=interaction.pathogen_taxid
+    #             )
 
-                edge_list.append((None, organism_id, disease_id, label, {}))
+    #             # Provenance metadata
+    #             props = {"source": "PathoPhenoDB"}
 
-            if self.early_stopping and index == self.early_stopping:
-                break
+    #             edge_list.append((None, organism_id, disease_id, label, props))
 
-        # write hiererchical edge data to csv
-        if self.export_csv:
-            if self.output_dir:
-                full_path = os.path.join(
-                    self.output_dir, "Organism_to_disease_edge.csv"
-                )
-            else:
-                full_path = os.path.join(
-                    os.getcwd(), "Organism_to_disease_edge.csv"
-                )
+    #         if self.early_stopping and index == self.early_stopping:
+    #             break
 
-            df_list = [
-                {"organism_id": organism, "disease_id": disease, "label": label}
-                for _, organism, disease, label, _ in edge_list
-            ]
-            df = pd.DataFrame.from_records(df_list)
-            df.to_csv(full_path, index=False)
-            logger.info(f"Organism-Disease edge data is written: {full_path}")
+    #     # write organism-disease edge data to csv
+    #     if self.export_csv:
+    #         if self.output_dir:
+    #             full_path = os.path.join(
+    #                 self.output_dir, "Organism_to_disease_edge.csv"
+    #             )
+    #         else:
+    #             full_path = os.path.join(
+    #                 os.getcwd(), "Organism_to_disease_edge.csv"
+    #             )
 
-        return edge_list
+    #         df_list = [
+    #             {
+    #                 "organism_id": organism,
+    #                 "disease_id": disease,
+    #                 "label": label,
+    #                 "source": props.get("source"),
+    #             }
+    #             for _, organism, disease, label, props in edge_list
+    #         ]
+    #         df = pd.DataFrame.from_records(df_list)
+    #         df.to_csv(full_path, index=False)
+    #         logger.info(f"Organism-Disease edge data is written: {full_path}")
 
+    #     return edge_list
+        
     @validate_call
     def get_disease_drug_edges(
         self, label: str = "disease_is_treated_by_drug"
@@ -3147,6 +3300,21 @@ class Disease:
     def ensure_iterable(self, element):
         return element if isinstance(element, (list, tuple, set)) else [element]
 
+    def _resolve_gene_symbol_to_entrez(self, gene_symbols):
+        """
+        vda.gene_symbol is a tuple that may contain more than one symbol
+        (e.g. an overlapping gene pair like ('NBR2', 'BRCA1')). Tries each
+        symbol in order and returns the Entrez gene id for the first one
+        that resolves through gene_symbol_to_uniprot -> uniprot_to_entrez.
+        Returns None if none of the symbols resolve.
+        """
+        for symbol in gene_symbols:
+            uniprot_id = self.gene_symbol_to_uniprot.get(symbol)
+            if uniprot_id and self.uniprot_to_entrez.get(uniprot_id):
+                return self.uniprot_to_entrez.get(uniprot_id)
+
+        return None
+
     def map_disgenet_disease_id_to_mondo_id(
         self, disgenet_id, return_pandas_none=True
     ):
@@ -3157,8 +3325,9 @@ class Disease:
             "HPO": "HP",
             "MSH": "MESH",
             "NCI": "NCIT",
-            "ICD10CM": "ICD10CM",
+            "ICD10": "ICD10CM",
             "OMIM": "OMIM",
+            "ORDO": "Orphanet",
         }
 
         diseaseid = self.mondo_mappings["UMLS"].get(disgenet_id)
