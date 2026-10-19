@@ -37,6 +37,12 @@ organism taxon:
   label_in_input: organism
   properties:
     organism_name: str
+    name: str
+    common_name: str
+    rank: str
+    source: str
+    licence: str
+    version: str
 
 protein domain:  
   represented_as: node
@@ -574,6 +580,14 @@ phenotype hierarchical association:
   source: phenotype
   target: phenotype
   label_in_input: phenotype_is_a_phenotype
+
+organism taxon hierarchical association:
+  is_a: association
+  represented_as: edge
+  label_as_edge: organism_is_a_organism
+  source: organism taxon
+  target: organism taxon
+  label_in_input: organism_is_a_organism
 
 phenotype to disease association:
   is_a: DiseaseToPhenotypicFeatureAssociation
