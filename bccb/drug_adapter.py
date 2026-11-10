@@ -51,7 +51,7 @@ class DrugNodeField(Enum, metaclass=DrugEnumMeta):
     GROUPS = "groups"
     GENERAL_REFERENCES = "general_references"
     ATC_CODES = "atc_codes"
-    ZINC = "zinc"
+    ZINC = "ZINC"
     CHEMBL = "chembl"
     BINDINGDB = "bindingdb"
     CLINICALTRIALS = "clinicaltrials"
@@ -86,12 +86,12 @@ class DrugNodeField(Enum, metaclass=DrugEnumMeta):
             cls.PHARMGKB.value,
             cls.PDB.value,
             cls.DRUGCENTRAL.value,
+            cls.ZINC.value,
         ]
 
     @classmethod
     def get_unichem_mapping_fields(cls):
         return [
-            cls.ZINC.value,
             cls.CHEMBL.value,
             cls.BINDINGDB.value,
             cls.CLINICALTRIALS.value,
@@ -543,9 +543,6 @@ class Drug:
             )
 
         # create dictionaries for every unichem external fields
-        unichem_drugbank_to_zinc_mapping = unichem.unichem_mapping(
-            "drugbank", "zinc"
-        )
         unichem_drugbank_to_chembl_mapping = unichem.unichem_mapping(
             "chembl", "drugbank"
         )
@@ -567,7 +564,6 @@ class Drug:
 
         # store above dicts in a unified dict
         self.unichem_external_fields_dict = {
-            "zinc": unichem_drugbank_to_zinc_mapping,
             "chembl": unichem_drugbank_to_chembl_mapping,
             "bindingdb": unichem_drugbank_to_bindingdb_mapping,
             "clinicaltrials": unichem_drugbank_to_clinicaltrials_mapping,
@@ -760,7 +756,8 @@ class Drug:
         """
         Wrapper function to download DGIdb DTI data using pypath
 
-        It returns ChEMBL IDs as drug IDs and Entrez Gene IDs as protein IDs.
+        It returns prefixed drug IDs (e.g. "chembl:CHEMBL220845", "drugbank:DB06345")
+        and prefixed gene IDs (mostly "hgnc:402", a few "ncbigene:1574").
         """
 
         # edge data
@@ -769,12 +766,14 @@ class Drug:
 
         self.dgidb_dti = dgidb.dgidb_interactions()
 
-        # map entrez gene ids to swissprot ids
-        uniprot_to_entrez = uniprot.uniprot_data("xref_geneid", "*", True)
-        self.entrez_to_uniprot = collections.defaultdict(list)
-        for k, v in uniprot_to_entrez.items():
-            for entrez_id in list(filter(None, v.split(";"))):
-                self.entrez_to_uniprot[entrez_id].append(k)
+        # map hgnc and entrez gene ids to swissprot ids, keyed like dgidb gene ids
+        self.dgidb_gene_to_uniprot = collections.defaultdict(list)
+        for xref_field, prefix in (("xref_hgnc", "hgnc"), ("xref_geneid", "ncbigene")):
+            uniprot_to_gene = uniprot.uniprot_data(xref_field, "*", True)
+            for k, v in uniprot_to_gene.items():
+                for gene_id in list(filter(None, v.split(";"))):
+                    gene_id = gene_id.split(":")[-1]
+                    self.dgidb_gene_to_uniprot[f"{prefix}:{gene_id}"].append(k)
 
         if not hasattr(self, "chembl_to_drugbank"):
             self.get_external_database_mappings()
@@ -795,17 +794,25 @@ class Drug:
         df_list = []
 
         for dti in self.dgidb_dti:
-            if (
-                dti.entrez
-                and dti.drug_chembl
-                and self.entrez_to_uniprot.get(dti.entrez)
-                and self.chembl_to_drugbank.get(dti.drug_chembl.split(":")[1])
-            ):
+            if not dti.gene_id or not dti.drug_id:
+                continue
+
+            uniprot_ids = self.dgidb_gene_to_uniprot.get(dti.gene_id.lower())
+
+            drug_prefix, _, drug_id = dti.drug_id.partition(":")
+            if drug_prefix == "chembl":
+                drugbank_id = self.chembl_to_drugbank.get(drug_id.upper())
+            elif drug_prefix == "drugbank":
+                drugbank_id = drug_id.upper()
+            else:
+                drugbank_id = None
+
+            if uniprot_ids and drugbank_id:
                 pmid = "|".join(dti.pmid.split(",")) if dti.pmid else None
                 df_list.append(
                     (
-                        self.entrez_to_uniprot[dti.entrez][0],
-                        self.chembl_to_drugbank[dti.drug_chembl.split(":")[1]],
+                        uniprot_ids[0],
+                        drugbank_id,
                         dti.type,
                         dti.score,
                         pmid,
@@ -1075,7 +1082,12 @@ class Drug:
             if mapping.drugbank
         }
 
-        self.ddinter_interactions = ddinter.ddinter_interactions()
+        # ddinter_interactions() returns one set of interactions per drug, flatten it
+        self.ddinter_interactions = [
+            interaction
+            for drug_interactions in ddinter.ddinter_interactions()
+            for interaction in drug_interactions
+        ]
 
         t1 = time()
         logger.info(
@@ -2216,7 +2228,7 @@ class Drug:
         )
 
     def set_edge_types(self, edge_types):
-        self.edge_types = edge_types or list(DrugEdgeType)
+        self.edge_types = edge_types if edge_types is not None else list(DrugEdgeType)
 
     @validate_call
     def add_prefix_to_id(
