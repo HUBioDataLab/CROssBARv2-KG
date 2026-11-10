@@ -949,6 +949,17 @@ class Disease:
             )
 
     def download_disgenet_data(self) -> None:
+        # Every request needs an API key and the id mapping alone queries
+        # the whole MONDO ontology, so skip DisGeNET when no edge type that
+        # uses it was requested.
+        disgenet_edge_types = {
+            DiseaseEdgeType.GENE_TO_DISEASE,
+            DiseaseEdgeType.DISEASE_TO_DISEASE,
+        }
+        if not disgenet_edge_types.intersection(self.edge_types):
+            logger.debug("No DisGeNET edge type requested, skipping download")
+            return
+
         if not hasattr(self, "disgenet_api"):
             self.disgenet_api = disgenet.DisgenetApi()
 
