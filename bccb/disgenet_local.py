@@ -33,7 +33,7 @@ from typing import (
     Callable,
     List,
     Union,
-    NamedTuple,
+    Set,
     Dict,
     Tuple,
     Optional,
@@ -55,6 +55,125 @@ MAX_PAGES = 100
 # the response carries a Retry-After header.
 RATE_LIMIT_RETRIES = 5
 RATE_LIMIT_BACKOFF = 2
+
+VariantDiseaseAssociation = collections.namedtuple(
+    "VariantDiseaseAssociation",
+    [
+        "variantid",
+        "gene_symbol",
+        "variant_dsi",
+        "variant_dpi",
+        "variant_consequence_type",
+        "diseaseid",
+        "disease_name",
+        "disease_classes_do",
+        "disease_classes_hpo",
+        "disease_classes_msh",
+        "disease_classes_umls_st",
+        "disease_type",
+        "score",
+        "ei",
+        "year_initial",
+        "year_final",
+        "source",
+    ],
+)
+
+GeneDiseaseAssociation = collections.namedtuple(
+    "GeneDiseaseAssociation",
+    [
+        "geneid",
+        "gene_symbol",
+        "uniprotid",
+        "gene_dsi",
+        "gene_dpi",
+        "gene_pli",
+        "protein_class",
+        "protein_class_name",
+        "diseaseid",
+        "disease_name",
+        "disease_classes_do",
+        "disease_classes_hpo",
+        "disease_classes_msh",
+        "disease_classes_umls_st",
+        "disease_type",
+        "score",
+        "ei",
+        "el",
+        "year_initial",
+        "year_final",
+        "source",
+    ],
+)
+
+DiseaseDiseaseAssociation = collections.namedtuple(
+    "DiseaseDiseaseAssociation",
+    [
+        "disease1_name",
+        "disease2_name",
+        "disease1_classes_do",
+        "disease1_classes_hpo",
+        "disease1_classes_msh",
+        "disease1_classes_umls_st",
+        "disease2_classes_do",
+        "disease2_classes_hpo",
+        "disease2_classes_msh",
+        "disease2_classes_umls_st",
+        "jaccard_genes",
+        "pvalue_jaccard_genes",
+        "jaccard_variants",
+        "pvalue_jaccard_variants",
+        "source",
+        "ngenes1",
+        "ngenes2",
+        "nvariants1",
+        "nvariants2",
+        "shared_genes",
+        "shared_variants",
+        "diseaseid1",
+        "diseaseid2",
+    ],
+)
+
+VariantGeneMapping = collections.namedtuple(
+    "VariantGeneMapping",
+    [
+        "geneId",
+        "geneSymbol",
+        "sourceIds",
+    ],
+)
+
+Vocabulary = collections.namedtuple(
+    "Vocabulary",
+    [
+        "vocabulary",
+        "code",
+        "vocabularyName",
+    ],
+)
+
+DiseaseIdMapping = collections.namedtuple(
+    "DiseaseIdMapping",
+    [
+        "name",
+        "vocabularies",
+    ],
+)
+
+DisGeNetAnnotation = collections.namedtuple(
+    "DisGeNetAnnotation",
+    [
+        "disease",
+        "type",
+        "score",
+        "dsi",
+        "dpi",
+        "nof_pmids",
+        "nof_snps",
+        "source",
+    ],
+)
 
 
 class DisgenetApi:
@@ -140,28 +259,7 @@ class DisgenetApi:
     max_dpi: float = None,
     dis_class_list: Union[str, List[str]] = None,
     page_number: int = None,
-) -> NamedTuple(
-    "VariantDiseaseAssociation",
-    [
-        ("variantid", str),
-        ("gene_symbol", Tuple[str]),
-        ("variant_dsi", float),
-        ("variant_dpi", float),
-        ("variant_consequence_type", str),
-        ("diseaseid", str),
-        ("disease_name", str),
-        ("disease_classes_do", Tuple[str]),
-        ("disease_classes_hpo", Tuple[str]),
-        ("disease_classes_msh", Tuple[str]),
-        ("disease_classes_umls_st", Tuple[str]),
-        ("disease_type", str),
-        ("score", float),
-        ("ei", float),
-        ("year_initial", int),
-        ("year_final", int),
-        ("source", Tuple[str]),
-    ],
-):
+) -> Tuple[Optional[List[VariantDiseaseAssociation]], Optional[Dict]]:
         """
         Returns Variant-Disease Associations.
 
@@ -245,29 +343,6 @@ class DisgenetApi:
         if result == None:
             return None, None
 
-        VariantDiseaseAssociation = collections.namedtuple(
-            "VariantDiseaseAssociation",
-            [
-                "variantid",
-                "gene_symbol",
-                "variant_dsi",
-                "variant_dpi",
-                "variant_consequence_type",
-                "diseaseid",
-                "disease_name",
-                "disease_classes_do",
-                "disease_classes_hpo",
-                "disease_classes_msh",
-                "disease_classes_umls_st",
-                "disease_type",
-                "score",
-                "ei",
-                "year_initial",
-                "year_final",
-                "source",
-            ],
-        )
-
         for index, entry in enumerate(result):
             result[index] = VariantDiseaseAssociation(
                 self._get_string(entry.get("variantStrID")),
@@ -312,32 +387,7 @@ class DisgenetApi:
         type: str = None,
         dis_class_list: Union[str, List[str]] = None,
         page_number: int = None,
-    ) -> NamedTuple(
-        "GeneDiseaseAssociation",
-        [
-            ("geneid", int),
-            ("gene_symbol", str),
-            ("uniprotid", Tuple[str]),
-            ("gene_dsi", float),
-            ("gene_dpi", float),
-            ("gene_pli", float),
-            ("protein_class", Tuple[str]),
-            ("protein_class_name", Tuple[str]),
-            ("diseaseid", str),
-            ("disease_name", str),
-            ("disease_classes_do", Tuple[str]),
-            ("disease_classes_hpo", Tuple[str]),
-            ("disease_classes_msh", Tuple[str]),
-            ("disease_classes_umls_st", Tuple[str]),
-            ("disease_type", str),
-            ("score", float),
-            ("ei", float),
-            ("el", str),
-            ("year_initial", int),
-            ("year_final", int),
-            ("source", Tuple[str]),
-        ],
-    ):
+    ) -> Tuple[Optional[List[GeneDiseaseAssociation]], Optional[Dict]]:
         """
         Returns Gene-Disease Associations.
 
@@ -430,33 +480,6 @@ class DisgenetApi:
 
         if result == None:
             return None, None
-
-        GeneDiseaseAssociation = collections.namedtuple(
-            "GeneDiseaseAssociation",
-            [
-                "geneid",
-                "gene_symbol",
-                "uniprotid",
-                "gene_dsi",
-                "gene_dpi",
-                "gene_pli",
-                "protein_class",
-                "protein_class_name",
-                "diseaseid",
-                "disease_name",
-                "disease_classes_do",
-                "disease_classes_hpo",
-                "disease_classes_msh",
-                "disease_classes_umls_st",
-                "disease_type",
-                "score",
-                "ei",
-                "el",
-                "year_initial",
-                "year_final",
-                "source",
-            ],
-        )
 
         for index, entry in enumerate(result):
             result[index] = GeneDiseaseAssociation(
@@ -644,34 +667,7 @@ class DisgenetApi:
         order_by: str = None,
         order: str = None,
         page_number: int = None,
-    ) -> NamedTuple(
-        "DiseaseDiseaseAssociation",
-        [
-            ("disease1_name", str),
-            ("disease2_name", str),
-            ("disease1_classes_do", Tuple[str]),
-            ("disease1_classes_hpo", Tuple[str]),
-            ("disease1_classes_msh", Tuple[str]),
-            ("disease1_classes_umls_st", Tuple[str]),
-            ("disease2_classes_do", Tuple[str]),
-            ("disease2_classes_hpo", Tuple[str]),
-            ("disease2_classes_msh", Tuple[str]),
-            ("disease2_classes_umls_st", Tuple[str]),
-            ("jaccard_genes", float),
-            ("pvalue_jaccard_genes", float),
-            ("jaccard_variants", float),
-            ("pvalue_jaccard_variants", float),
-            ("source", str),
-            ("ngenes1", int),
-            ("ngenes2", int),
-            ("nvariants1", int),
-            ("nvariants2", int),
-            ("shared_genes", int),
-            ("shared_variants", int),
-            ("diseaseid1", str),
-            ("diseaseid2", str),
-        ],
-    ):
+    ) -> Tuple[Optional[List[DiseaseDiseaseAssociation]], Optional[Dict]]:
         """
         Returns Disease-Disease Associations for disease_1, optionally
         restricted to the diseases given in disease_2.
@@ -736,35 +732,6 @@ class DisgenetApi:
 
         if result == None:
             return None, None
-
-        DiseaseDiseaseAssociation = collections.namedtuple(
-            "DiseaseDiseaseAssociation",
-            [
-                "disease1_name",
-                "disease2_name",
-                "disease1_classes_do",
-                "disease1_classes_hpo",
-                "disease1_classes_msh",
-                "disease1_classes_umls_st",
-                "disease2_classes_do",
-                "disease2_classes_hpo",
-                "disease2_classes_msh",
-                "disease2_classes_umls_st",
-                "jaccard_genes",
-                "pvalue_jaccard_genes",
-                "jaccard_variants",
-                "pvalue_jaccard_variants",
-                "source",
-                "ngenes1",
-                "ngenes2",
-                "nvariants1",
-                "nvariants2",
-                "shared_genes",
-                "shared_variants",
-                "diseaseid1",
-                "diseaseid2",
-            ],
-        )
 
         for index, entry in enumerate(result):
             result[index] = DiseaseDiseaseAssociation(
@@ -1125,7 +1092,7 @@ def variant_gene_mappings(
     api: "DisgenetApi",
     gene_ncbi_ids: List[str],
     batch_size: int = 10,
-) -> Tuple[Dict[str, List["VariantGeneMapping"]], List[List[str]]]:
+) -> Tuple[Dict[str, List[VariantGeneMapping]], List[List[str]]]:
     """
     Builds a {snpId: [VariantGeneMapping(geneId, geneSymbol, sourceIds),
     ...]} mapping by querying the DisGeNET API.
@@ -1150,15 +1117,6 @@ def variant_gene_mappings(
     @batch_size: int
         Number of gene IDs to send per request.
     """
-
-    VariantGeneMapping = collections.namedtuple(
-        "VariantGeneMapping",
-        [
-            "geneId",
-            "geneSymbol",
-            "sourceIds",
-        ],
-    )
 
     mapping = dict()
     failed_batches = []
@@ -1219,7 +1177,7 @@ def disease_id_mappings(
     api: "DisgenetApi",
     mondo_ids: List[str],
     batch_size: int = 10,
-) -> Tuple[Dict[str, "DiseaseIdMapping"], List[List[str]]]:
+) -> Tuple[Dict[str, DiseaseIdMapping], List[List[str]]]:
     """
     Builds a {diseaseId: DiseaseIdMapping(name, vocabularies)} mapping by
     querying the DisGeNET API.
@@ -1256,21 +1214,6 @@ def disease_id_mappings(
     @batch_size: int
         Number of disease IDs to send per request.
     """
-    Vocabulary = collections.namedtuple(
-        "Vocabulary",
-        [
-            "vocabulary",
-            "code",
-            "vocabularyName",
-        ],
-    )
-    DiseaseIdMapping = collections.namedtuple(
-        "DiseaseIdMapping",
-        [
-            "name",
-            "vocabularies",
-        ],
-    )
     mapping = dict()
     failed_batches = []
     url = f"{api._api_url}/entity/disease"
@@ -1323,7 +1266,7 @@ def disgenet_annotations(
     gene_ncbi_ids: List[str],
     dataset: str = "curated",
     batch_size: int = 10,
-) -> Tuple[Dict[str, set], List[List[str]]]:
+) -> Tuple[Dict[str, Set[DisGeNetAnnotation]], List[List[str]]]:
     """
     Builds a {uniprot_id: {DisGeNetAnnotation(...), ...}} mapping by
     querying the DisGeNET API.
@@ -1369,20 +1312,6 @@ def disgenet_annotations(
         return {}, []
 
     source = dataset_source_map[dataset]
-
-    DisGeNetAnnotation = collections.namedtuple(
-        "DisGeNetAnnotation",
-        [
-            "disease",
-            "type",
-            "score",
-            "dsi",
-            "dpi",
-            "nof_pmids",
-            "nof_snps",
-            "source",
-        ],
-    )
 
     data = collections.defaultdict(set)
     failed_batches = []
