@@ -43,6 +43,10 @@ import pandas as pd
 
 logger.debug(f"Loading module {__name__}.")
 
+# DisGeNET disease-disease edges kept per query disease and relation (shared
+# genes / shared variants), matching the previous API's default limit.
+DDA_TOP_N = 10
+
 
 class DiseaseEnumMeta(EnumMeta):
     def __contains__(cls, item):
@@ -975,32 +979,17 @@ class Disease:
             self.disgenet_dda_gene = []
             self.disgenet_dda_variant = []
 
-            # Old API's limit=10 no longer exists server-side (its endpoint
-            # is gone), and the new /dda endpoint has no result cap - a
-            # single popular disease can span dozens to hundreds of pages,
-            # which is not viable across ~25k MONDO diseases under a daily
-            # quota. min_jaccard_genes/min_jaccard_variants are used instead
-            # to cap results server-side by relatedness strength rather than
-            # by a fixed count. Thresholds (0.1 / 0.01) were chosen from
-            # testing against ~1000 real MONDO-derived diseases: every
-            # disease's single-page (page 0) result stayed under the API's
-            # 100-per-page limit at these thresholds, so pagination below is
-            # a safety net for the batch (10 diseases combined) rather than
-            # a single disease's own result count.
-            def fetch_dda_gene(batch, page_number):
+            # The retired API returned the top `limit=10` diseases per query
+            # disease and relation; the new /dda endpoint has no limit
+            # parameter. Every DDA of the batch is therefore downloaded and
+            # the top DDA_TOP_N per disease_1 are kept for each relation,
+            # which reproduces the previous selection rule. Each record
+            # carries both jaccard_genes and jaccard_variants, so one query
+            # per batch serves both relations.
+            def fetch_dda(batch, page_number):
                 return self.disgenet_api.get_dda(
                     disease_1=batch,
-                    min_jaccard_genes=0.1,
                     order_by="jaccard_genes",
-                    order="DESC",
-                    page_number=page_number,
-                )
-
-            def fetch_dda_variant(batch, page_number):
-                return self.disgenet_api.get_dda(
-                    disease_1=batch,
-                    min_jaccard_variants=0.01,
-                    order_by="jaccard_variants",
                     order="DESC",
                     page_number=page_number,
                 )
@@ -1008,11 +997,14 @@ class Disease:
             for i in tqdm(range(0, len(disease_ids_prefixed), batch_size)):
                 batch = disease_ids_prefixed[i : i + batch_size]
 
-                self._collect_disgenet_batch(
-                    "dda_gene", fetch_dda_gene, batch, self.disgenet_dda_gene
+                batch_ddas = []
+                self._collect_disgenet_batch("dda", fetch_dda, batch, batch_ddas)
+
+                self.disgenet_dda_gene.extend(
+                    self._top_ddas_per_disease(batch_ddas, "jaccard_genes")
                 )
-                self._collect_disgenet_batch(
-                    "dda_variant", fetch_dda_variant, batch, self.disgenet_dda_variant
+                self.disgenet_dda_variant.extend(
+                    self._top_ddas_per_disease(batch_ddas, "jaccard_variants")
                 )
 
             t1 = time()
@@ -1073,6 +1065,28 @@ class Disease:
                 f"downloaded data is incomplete. The affected query types and ids are in "
                 f"self.disgenet_failed_batches."
             )
+
+    @staticmethod
+    def _top_ddas_per_disease(ddas, metric, top_n=DDA_TOP_N) -> list:
+        """
+        Keeps the `top_n` DDAs with the highest `metric` (jaccard_genes or
+        jaccard_variants) for each query disease (diseaseid1).
+        """
+        by_disease = collections.defaultdict(list)
+
+        for dda in ddas:
+            value = getattr(dda, metric)
+
+            if value is not None and value > 0:
+                by_disease[dda.diseaseid1].append(dda)
+
+        top = []
+
+        for disease_ddas in by_disease.values():
+            disease_ddas.sort(key=lambda d: (-getattr(d, metric), d.diseaseid2 or ""))
+            top.extend(disease_ddas[:top_n])
+
+        return top
 
     def _collect_disgenet_batch(self, kind, fetch, batch, target) -> None:
         """
