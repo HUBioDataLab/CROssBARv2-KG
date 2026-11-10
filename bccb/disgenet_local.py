@@ -1229,35 +1229,165 @@ def disease_id_mappings(
         failed_batches.extend(failed)
 
         for entry in result:
-            disease_id = entry.get("diseaseUMLSCUI")
-            raw_codes = entry.get("diseaseCodes")
-            if disease_id is None or not raw_codes:
-                continue
             # The same disease_id can recur across a batch's results
             # (see docstring note above); only the first occurrence
             # needs to be processed.
-            if disease_id in mapping:
+            if entry.get("diseaseUMLSCUI") in mapping:
                 continue
-            name = entry.get("name")
-            vocab_list = []
-            for raw in raw_codes:
-                vocabulary = raw.get("vocabulary")
-                code = raw.get("code")
-                if not vocabulary or not code:
-                    continue
-                vocab_list.append(
-                    Vocabulary(
-                        vocabulary,
-                        code,
-                        # diseaseCodes entries carry only the short
-                        # vocabulary prefix (e.g. "MSH", "MONDO"),
-                        # no full vocabulary name.
-                        None,
-                    )
-                )
-            mapping[disease_id] = DiseaseIdMapping(name, tuple(vocab_list))
+
+            parsed = _parse_disease_entity(entry)
+
+            if parsed:
+                mapping[parsed[0]] = parsed[1]
 
     return mapping, failed_batches
+
+
+def _parse_disease_entity(
+    entry: dict,
+) -> Optional[Tuple[str, DiseaseIdMapping]]:
+    """
+    Converts one /entity/disease record into a (UMLS CUI, DiseaseIdMapping)
+    pair, or None if the record has no CUI or no diseaseCodes.
+    """
+
+    disease_id = entry.get("diseaseUMLSCUI")
+    raw_codes = entry.get("diseaseCodes")
+
+    if disease_id is None or not raw_codes:
+        return None
+
+    vocab_list = []
+
+    for raw in raw_codes:
+        vocabulary = raw.get("vocabulary")
+        code = raw.get("code")
+
+        if not vocabulary or not code:
+            continue
+
+        vocab_list.append(
+            Vocabulary(
+                vocabulary,
+                code,
+                # diseaseCodes entries carry only the short vocabulary
+                # prefix (e.g. "MSH", "MONDO"), no full vocabulary name.
+                None,
+            )
+        )
+
+    return disease_id, DiseaseIdMapping(entry.get("name"), tuple(vocab_list))
+
+
+@DisgenetApi._delete_cache
+def all_disease_id_mappings(
+    api: "DisgenetApi",
+    max_pages: Optional[int] = None,
+) -> Tuple[Dict[str, DiseaseIdMapping], bool]:
+    """
+    Builds a {diseaseId: DiseaseIdMapping(name, vocabularies)} mapping.
+    Returns a (mapping, complete) tuple. complete is False if a request
+    failed, or if the enumerated diseases do not add up to the total the
+    API reports; callers should then treat the mapping as partial.
+
+    The API serves at most MAX_PAGES pages per query. Diseases are
+    therefore enumerated per disease type, and a type above the cap is
+    read from both ends of the API's default ordering (order=ASC, then
+    order=DESC) until all of its records have been seen.
+
+    @api: DisgenetApi
+        An already-authenticated DisgenetApi instance.
+    @max_pages: Optional[int]
+        Read only this many pages per type, e.g. for test runs, taken from
+        the middle of the default ordering: it runs from diseases with no
+        gene associations (ASC end) to the most studied ones (DESC end),
+        so the middle gives a light but non-empty sample. complete is then
+        False.
+    """
+
+    url = f"{api._api_url}/entity/disease"
+    page_limit = min(max_pages or MAX_PAGES, MAX_PAGES)
+    orders = ("ASC", "DESC") if max_pages is None else ("ASC",)
+    mapping = dict()
+
+    def fetch(params, page_number):
+        return api._retrieve_data(
+            url, {**params, "page_number": str(page_number)}
+        )
+
+    _, paging = fetch({}, 0)
+
+    if paging is None:
+        _log("DisGeNET: could not read the total number of diseases.")
+        return mapping, False
+
+    expected_total = paging.get("totalElements") or 0
+    type_total_sum = 0
+    complete = True
+
+    for disease_type in ("disease", "phenotype"):
+        seen = set()
+        type_total = None
+        first_page = 0
+
+        if max_pages is not None:
+            _, paging = fetch({"type": disease_type, "order": "ASC"}, 0)
+
+            if paging:
+                type_pages = -(-(paging.get("totalElements") or 0)
+                               // paging.get("pageSize", 100))
+                first_page = min(type_pages // 2, MAX_PAGES - page_limit)
+
+        for order in orders:
+            for page_number in range(first_page, first_page + page_limit):
+                result, paging = fetch(
+                    {"type": disease_type, "order": order}, page_number
+                )
+
+                if paging is None:
+                    _log(
+                        f"DisGeNET: disease enumeration failed for type "
+                        f"{disease_type}, order {order}, page {page_number}."
+                    )
+                    complete = False
+                    break
+
+                type_total = paging.get("totalElements") or 0
+
+                for entry in result or []:
+                    seen.add(entry.get("diseaseUMLSCUI"))
+                    parsed = _parse_disease_entity(entry)
+
+                    if parsed:
+                        mapping.setdefault(parsed[0], parsed[1])
+
+                if (
+                    len(seen) >= type_total
+                    or paging.get("totalElementsInPage", 0)
+                    < paging.get("pageSize", 100)
+                ):
+                    break
+
+            if type_total is not None and len(seen) >= type_total:
+                break
+
+        type_total_sum += type_total or 0
+
+        if type_total is None or len(seen) < type_total:
+            _log(
+                f"DisGeNET: enumerated {len(seen)} of {type_total} diseases "
+                f"of type {disease_type}."
+            )
+            complete = False
+
+    if type_total_sum != expected_total:
+        _log(
+            f"DisGeNET: disease types add up to {type_total_sum}, but the "
+            f"API reports {expected_total} diseases in total."
+        )
+        complete = False
+
+    return mapping, complete
 
 
 @DisgenetApi._delete_cache

@@ -1181,33 +1181,28 @@ class Disease:
 
     def prepare_disgenet_id_mappings(self):
         """
-        Prepare disgenet id mappings
+        Prepare disgenet id mappings for every DisGeNET disease, and the
+        list of DisGeNET disease ids to query: those that resolve to a
+        MONDO id, since edges of the others are dropped during processing.
         """
-        if not hasattr(self, "mondo"):
-            self.download_mondo_data()
+        if not hasattr(self, "mondo_mappings"):
+            self.prepare_mappings()
 
         if not hasattr(self, "disgenet_api"):
             self.disgenet_api = disgenet.DisgenetApi()
 
-        mondo_ids = [
-            term.obo_id.replace(":", "_")
-            for term in self.mondo
-            if not term.is_obsolete and term.obo_id and "MONDO" in term.obo_id
-        ]
-
-        disgenet_id_mappings, failed_batches = disgenet.disease_id_mappings(
-            self.disgenet_api, mondo_ids, batch_size=10
+        # test mode: one page per disease type instead of all diseases
+        disgenet_id_mappings, complete = disgenet.all_disease_id_mappings(
+            self.disgenet_api, max_pages=1 if self.early_stopping else None
         )
 
-        self.disgenet_failed_id_mapping_batches = failed_batches
+        self.disgenet_id_mappings_complete = complete
 
-        if failed_batches:
+        if not complete and not self.early_stopping:
             logger.warning(
-                f"{len(failed_batches)} of "
-                f"{-(-len(mondo_ids) // 10)} Disgenet id mapping batches "
-                f"were cut short by a retrieval error; the mappings below "
-                f"are incomplete. Affected ids are in "
-                f"self.disgenet_failed_id_mapping_batches."
+                f"Disgenet disease enumeration is incomplete "
+                f"({len(disgenet_id_mappings)} diseases retrieved); the id "
+                f"mappings and the downloaded Disgenet data will be partial."
             )
 
         # vocabulary prefixes as sent by the API in diseaseVocabularies;
@@ -1239,7 +1234,18 @@ class Disease:
 
             self.disgenet_id_mappings_dict[disg_id] = map_dict
 
-        self.disgenet_disease_ids = list(disgenet_id_mappings.keys())
+        self.disgenet_disease_ids = [
+            disg_id
+            for disg_id in disgenet_id_mappings
+            if self.map_disgenet_disease_id_to_mondo_id(
+                disg_id, return_pandas_none=False
+            )
+        ]
+
+        logger.info(
+            f"{len(self.disgenet_disease_ids)} of {len(disgenet_id_mappings)} "
+            f"Disgenet diseases resolve to a MONDO id and will be queried."
+        )
 
     def prepare_malacards_mondo_mappings(self, malacards_external_ids):
 
