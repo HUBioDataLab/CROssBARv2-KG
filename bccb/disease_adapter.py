@@ -987,74 +987,33 @@ class Disease:
             # 100-per-page limit at these thresholds, so pagination below is
             # a safety net for the batch (10 diseases combined) rather than
             # a single disease's own result count.
+            def fetch_dda_gene(batch, page_number):
+                return self.disgenet_api.get_dda(
+                    disease_1=batch,
+                    min_jaccard_genes=0.1,
+                    order_by="jaccard_genes",
+                    order="DESC",
+                    page_number=page_number,
+                )
+
+            def fetch_dda_variant(batch, page_number):
+                return self.disgenet_api.get_dda(
+                    disease_1=batch,
+                    min_jaccard_variants=0.01,
+                    order_by="jaccard_variants",
+                    order="DESC",
+                    page_number=page_number,
+                )
+
             for i in tqdm(range(0, len(disease_ids_prefixed), batch_size)):
                 batch = disease_ids_prefixed[i : i + batch_size]
 
-                page_number = 0
-                while True:
-                    dda_gene_result, paging = self.disgenet_api.get_dda(
-                        disease_1=batch,
-                        min_jaccard_genes=0.1,
-                        order_by="jaccard_genes",
-                        order="DESC",
-                        page_number=page_number,
-                    )
-
-                    if paging is None:
-                        self.disgenet_failed_batches.append(("dda_gene", batch))
-                        logger.warning(
-                            f"DDA gene batch starting at {batch[0]} was cut short "
-                            f"at page {page_number} by a retrieval error; "
-                            f"results for these ids are incomplete."
-                        )
-                        break
-
-                    if not dda_gene_result:
-                        if page_number == 0:
-                            logger.debug(
-                                f"DDA gene batch starting at {batch[0]} not available"
-                            )
-                        break
-
-                    self.disgenet_dda_gene.extend(dda_gene_result)
-
-                    if paging.get("totalElementsInPage", 0) < paging.get("pageSize", 100):
-                        break
-
-                    page_number += 1
-
-                page_number = 0
-                while True:
-                    dda_variant_result, paging = self.disgenet_api.get_dda(
-                        disease_1=batch,
-                        min_jaccard_variants=0.01,
-                        order_by="jaccard_variants",
-                        order="DESC",
-                        page_number=page_number,
-                    )
-
-                    if paging is None:
-                        self.disgenet_failed_batches.append(("dda_variant", batch))
-                        logger.warning(
-                            f"DDA variant batch starting at {batch[0]} was cut short "
-                            f"at page {page_number} by a retrieval error; "
-                            f"results for these ids are incomplete."
-                        )
-                        break
-
-                    if not dda_variant_result:
-                        if page_number == 0:
-                            logger.debug(
-                                f"DDA variant batch starting at {batch[0]} not available"
-                            )
-                        break
-
-                    self.disgenet_dda_variant.extend(dda_variant_result)
-
-                    if paging.get("totalElementsInPage", 0) < paging.get("pageSize", 100):
-                        break
-
-                    page_number += 1
+                self._collect_disgenet_batch(
+                    "dda_gene", fetch_dda_gene, batch, self.disgenet_dda_gene
+                )
+                self._collect_disgenet_batch(
+                    "dda_variant", fetch_dda_variant, batch, self.disgenet_dda_variant
+                )
 
             t1 = time()
             logger.info(
@@ -1086,66 +1045,21 @@ class Disease:
             self.disgenet_gda = []
             self.disgenet_vda = []
 
+            def fetch_gda(batch, page_number):
+                return self.disgenet_api.get_gda_summary(
+                    disease=batch, page_number=page_number
+                )
+
+            def fetch_vda(batch, page_number):
+                return self.disgenet_api.get_vda_summary(
+                    disease=batch, page_number=page_number
+                )
+
             for i in tqdm(range(0, len(disease_ids_prefixed), batch_size)):
                 batch = disease_ids_prefixed[i : i + batch_size]
 
-                page_number = 0
-                while True:
-                    gda_result, paging = self.disgenet_api.get_gda_summary(
-                        disease=batch, page_number=page_number
-                    )
-
-                    if paging is None:
-                        self.disgenet_failed_batches.append(("gda", batch))
-                        logger.warning(
-                            f"GDA batch starting at {batch[0]} was cut short "
-                            f"at page {page_number} by a retrieval error; "
-                            f"results for these ids are incomplete."
-                        )
-                        break
-
-                    if not gda_result:
-                        if page_number == 0:
-                            logger.debug(
-                                f"GDA batch starting at {batch[0]} not available"
-                            )
-                        break
-
-                    self.disgenet_gda.extend(gda_result)
-
-                    if paging.get("totalElementsInPage", 0) < paging.get("pageSize", 100):
-                        break
-
-                    page_number += 1
-
-                page_number = 0
-                while True:
-                    vda_result, paging = self.disgenet_api.get_vda_summary(
-                        disease=batch, page_number=page_number
-                    )
-
-                    if paging is None:
-                        self.disgenet_failed_batches.append(("vda", batch))
-                        logger.warning(
-                            f"VDA batch starting at {batch[0]} was cut short "
-                            f"at page {page_number} by a retrieval error; "
-                            f"results for these ids are incomplete."
-                        )
-                        break
-
-                    if not vda_result:
-                        if page_number == 0:
-                            logger.debug(
-                                f"VDA batch starting at {batch[0]} not available"
-                            )
-                        break
-
-                    self.disgenet_vda.extend(vda_result)
-
-                    if paging.get("totalElementsInPage", 0) < paging.get("pageSize", 100):
-                        break
-
-                    page_number += 1
+                self._collect_disgenet_batch("gda", fetch_gda, batch, self.disgenet_gda)
+                self._collect_disgenet_batch("vda", fetch_vda, batch, self.disgenet_vda)
 
             t1 = time()
             logger.info(
@@ -1154,11 +1068,34 @@ class Disease:
 
         if self.disgenet_failed_batches:
             logger.warning(
-                f"{len(self.disgenet_failed_batches)} Disgenet batches were "
-                f"cut short by a retrieval error, so the downloaded data is "
-                f"incomplete. The affected query types and ids are in "
+                f"{len(self.disgenet_failed_batches)} Disgenet batches are "
+                f"incomplete (retrieval error or API page cap), so the "
+                f"downloaded data is incomplete. The affected query types and ids are in "
                 f"self.disgenet_failed_batches."
             )
+
+    def _collect_disgenet_batch(self, kind, fetch, batch, target) -> None:
+        """
+        Pages through one DisGeNET batch query and extends `target` with its
+        records. Batches above the API's page cap are split by
+        disgenet.paginate_batch(); sub-batches cut short by a retrieval
+        error are recorded in self.disgenet_failed_batches as (kind, ids).
+        """
+        records, failed = disgenet.paginate_batch(
+            fetch, batch, f"DisGeNET {kind}"
+        )
+        target.extend(records)
+
+        for failed_batch in failed:
+            self.disgenet_failed_batches.append((kind, failed_batch))
+            logger.warning(
+                f"{kind} batch starting at {failed_batch[0]} is incomplete "
+                f"due to a retrieval error or the API page cap."
+            )
+
+        if not records and not failed:
+            logger.debug(f"{kind} batch starting at {batch[0]} not available")
+
     def download_malacards_data(self,
                                 malacards_json_path: FilePath | None = None, 
                                 malacards_related_diseases_json_path: FilePath | None = None) -> None:

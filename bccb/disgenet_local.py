@@ -29,7 +29,16 @@ import collections
 import json
 from getpass import getpass
 
-from typing import List, Union, NamedTuple, Dict, Tuple, Optional, Literal
+from typing import (
+    Callable,
+    List,
+    Union,
+    NamedTuple,
+    Dict,
+    Tuple,
+    Optional,
+    Literal,
+)
 
 import pypath.share.curl as curl
 import pypath.share.session as session
@@ -37,6 +46,10 @@ import pypath.resources.urls as urls
 
 _logger = session.Logger(name="disgenet_input")
 _log = _logger._log
+
+# The API rejects page_number >= 100 with HTTP 400, so one query returns at
+# most MAX_PAGES * pageSize records; larger results must be split.
+MAX_PAGES = 100
 
 # HTTP 429 is retried with exponential backoff (2, 4, 8, 16, 32 s), unless
 # the response carries a Retry-After header.
@@ -1017,6 +1030,96 @@ class DisgenetApi:
         return tuple(sorted(sources)) if sources else None
 
 
+def paginate_batch(
+    fetch: Callable[[List[str], int], Tuple[Optional[list], Optional[dict]]],
+    batch: List[str],
+    label: str = "DisGeNET",
+) -> Tuple[list, List[List[str]]]:
+    """
+    Collects every record a batched query returns, page by page.
+
+    Returns a (records, failed_batches) tuple. A sub-batch is reported in
+    failed_batches when a retrieval error cuts its pagination short, or
+    when a single id alone exceeds the API's page cap.
+
+    The API serves at most MAX_PAGES pages per query, so when page 0
+    reports more records than that, the batch is split in half and each
+    half is paged separately.
+
+    @fetch: Callable
+        fetch(batch, page_number) -> (records, paging), e.g. a lambda
+        around get_gda_summary() or _retrieve_data().
+    @batch: List[str]
+        Ids sent together in one query.
+    @label: str
+        Query name used in log messages.
+    """
+
+    records = []
+    failed_batches = []
+    page_number = 0
+
+    while True:
+        result, paging = fetch(batch, page_number)
+
+        if paging is None:
+            # A page past the end comes back as [] with valid paging, so a
+            # missing paging block means the request itself failed.
+            _log(
+                f"{label}: stopping pagination for batch {batch} at page "
+                f"{page_number} due to a retrieval error; results for these "
+                f"ids are incomplete."
+            )
+            failed_batches.append(batch)
+            break
+
+        page_size = paging.get("pageSize", 100)
+
+        if page_number == 0:
+            total = paging.get("totalElements") or 0
+            cap = page_size * MAX_PAGES
+
+            if total > cap:
+                if len(batch) > 1:
+                    _log(
+                        f"{label}: batch starting at {batch[0]} has {total} "
+                        f"records, above the {cap}-record page cap; "
+                        f"splitting it in half."
+                    )
+                    middle = len(batch) // 2
+
+                    for half in (batch[:middle], batch[middle:]):
+                        half_records, half_failed = paginate_batch(
+                            fetch, half, label
+                        )
+                        records.extend(half_records)
+                        failed_batches.extend(half_failed)
+
+                    return records, failed_batches
+
+                _log(
+                    f"{label}: {batch[0]} alone has {total} records, above "
+                    f"the {cap}-record page cap; only the first {cap} can "
+                    f"be retrieved."
+                )
+                failed_batches.append(batch)
+
+        if not result:
+            break
+
+        records.extend(result)
+
+        if paging.get("totalElementsInPage", 0) < page_size:
+            break
+
+        page_number += 1
+
+        if page_number >= MAX_PAGES:
+            break
+
+    return records, failed_batches
+
+
 @DisgenetApi._delete_cache
 def variant_gene_mappings(
     api: "DisgenetApi",
@@ -1059,76 +1162,54 @@ def variant_gene_mappings(
 
     mapping = dict()
     failed_batches = []
+    url = f"{api._api_url}/entity/variant"
+
+    def fetch(batch, page_number):
+        return api._retrieve_data(
+            url, {"gene_ncbi_id": batch, "page_number": str(page_number)}
+        )
 
     for i in range(0, len(gene_ncbi_ids), batch_size):
         batch = gene_ncbi_ids[i : i + batch_size]
-        page_number = 0
+        result, failed = paginate_batch(fetch, batch, "DisGeNET variant")
+        failed_batches.extend(failed)
 
-        while True:
-            url = f"{api._api_url}/entity/variant"
-            get_params = {
-                "gene_ncbi_id": batch,
-                "page_number": str(page_number),
-            }
+        for entry in result:
+            snp_id = entry.get("strID")
+            variant_to_genes = entry.get("variantToGenes")
 
-            result, paging = api._retrieve_data(url, get_params)
+            if snp_id == None or not variant_to_genes:
+                continue
 
-            if paging is None:
-                # A real error occurred (auth failure, bad response, etc.),
-                # not just an empty final page — stop this batch rather than
-                # silently treating a failure as "pagination complete".
-                _log(
-                    f"DisGeNET: stopping pagination for batch {batch} "
-                    f"at page {page_number} due to a retrieval error; "
-                    f"results for these ids are incomplete."
-                )
-                failed_batches.append(batch)
-                break
+            if snp_id not in mapping:
+                mapping[snp_id] = []
 
-            if not result:
-                break
+            existing_pairs = {(m.geneId, m.geneSymbol) for m in mapping[snp_id]}
 
-            for entry in result:
-                snp_id = entry.get("strID")
-                variant_to_genes = entry.get("variantToGenes")
+            for vtg in variant_to_genes:
+                gene_id = vtg.get("geneNcbiID")
+                gene_symbol = vtg.get("symbolOfGene")
+                sources = vtg.get("sources")
 
-                if snp_id == None or not variant_to_genes:
+                gene_id_str = api._get_string(gene_id) if gene_id != None else None
+                pair = (gene_id_str, gene_symbol)
+
+                if pair in existing_pairs:
+                    # variantToGenes is variant-level data: the same
+                    # variant reached through a different gene query
+                    # comes back with an identical list, sources
+                    # included, so the skipped record has nothing to
+                    # merge in.
                     continue
 
-                if snp_id not in mapping:
-                    mapping[snp_id] = []
-
-                existing_pairs = {(m.geneId, m.geneSymbol) for m in mapping[snp_id]}
-
-                for vtg in variant_to_genes:
-                    gene_id = vtg.get("geneNcbiID")
-                    gene_symbol = vtg.get("symbolOfGene")
-                    sources = vtg.get("sources")
-
-                    gene_id_str = api._get_string(gene_id) if gene_id != None else None
-                    pair = (gene_id_str, gene_symbol)
-
-                    if pair in existing_pairs:
-                        # variantToGenes is variant-level data: the same
-                        # variant reached through a different gene query
-                        # comes back with an identical list, sources
-                        # included, so the skipped record has nothing to
-                        # merge in.
-                        continue
-
-                    mapping[snp_id].append(
-                        VariantGeneMapping(
-                            gene_id_str,
-                            gene_symbol,
-                            tuple(sources) if sources else None,
-                        )
+                mapping[snp_id].append(
+                    VariantGeneMapping(
+                        gene_id_str,
+                        gene_symbol,
+                        tuple(sources) if sources else None,
                     )
-                    existing_pairs.add(pair)
-
-            if paging.get("totalElementsInPage", 0) < paging.get("pageSize", 100):
-                break
-
-            page_number += 1
+                )
+                existing_pairs.add(pair)
 
     return mapping, failed_batches
 
@@ -1192,60 +1273,47 @@ def disease_id_mappings(
     )
     mapping = dict()
     failed_batches = []
+    url = f"{api._api_url}/entity/disease"
+
+    def fetch(batch, page_number):
+        return api._retrieve_data(
+            url, {"disease": batch, "page_number": str(page_number)}
+        )
+
     for i in range(0, len(mondo_ids), batch_size):
         batch = mondo_ids[i : i + batch_size]
-        page_number = 0
-        while True:
-            url = f"{api._api_url}/entity/disease"
-            get_params = {
-                "disease": batch,
-                "page_number": str(page_number),
-            }
-            result, paging = api._retrieve_data(url, get_params)
-            if paging is None:
-                # A real error occurred (auth failure, bad response, etc.),
-                # not just an empty final page — stop this batch rather than
-                # silently treating a failure as "pagination complete".
-                _log(
-                    f"DisGeNET: stopping pagination for batch {batch} "
-                    f"at page {page_number} due to a retrieval error; "
-                    f"results for these ids are incomplete."
-                )
-                failed_batches.append(batch)
-                break
-            if not result:
-                break
-            for entry in result:
-                disease_id = entry.get("diseaseUMLSCUI")
-                raw_codes = entry.get("diseaseCodes")
-                if disease_id is None or not raw_codes:
+        result, failed = paginate_batch(fetch, batch, "DisGeNET disease")
+        failed_batches.extend(failed)
+
+        for entry in result:
+            disease_id = entry.get("diseaseUMLSCUI")
+            raw_codes = entry.get("diseaseCodes")
+            if disease_id is None or not raw_codes:
+                continue
+            # The same disease_id can recur across a batch's results
+            # (see docstring note above); only the first occurrence
+            # needs to be processed.
+            if disease_id in mapping:
+                continue
+            name = entry.get("name")
+            vocab_list = []
+            for raw in raw_codes:
+                vocabulary = raw.get("vocabulary")
+                code = raw.get("code")
+                if not vocabulary or not code:
                     continue
-                # The same disease_id can recur across a batch's results
-                # (see docstring note above); only the first occurrence
-                # needs to be processed.
-                if disease_id in mapping:
-                    continue
-                name = entry.get("name")
-                vocab_list = []
-                for raw in raw_codes:
-                    vocabulary = raw.get("vocabulary")
-                    code = raw.get("code")
-                    if not vocabulary or not code:
-                        continue
-                    vocab_list.append(
-                        Vocabulary(
-                            vocabulary,
-                            code,
-                            # diseaseCodes entries carry only the short
-                            # vocabulary prefix (e.g. "MSH", "MONDO"),
-                            # no full vocabulary name.
-                            None,
-                        )
+                vocab_list.append(
+                    Vocabulary(
+                        vocabulary,
+                        code,
+                        # diseaseCodes entries carry only the short
+                        # vocabulary prefix (e.g. "MSH", "MONDO"),
+                        # no full vocabulary name.
+                        None,
                     )
-                mapping[disease_id] = DiseaseIdMapping(name, tuple(vocab_list))
-            if paging.get("totalElementsInPage", 0) < paging.get("pageSize", 100):
-                break
-            page_number += 1
+                )
+            mapping[disease_id] = DiseaseIdMapping(name, tuple(vocab_list))
+
     return mapping, failed_batches
 
 
@@ -1318,73 +1386,50 @@ def disgenet_annotations(
 
     data = collections.defaultdict(set)
     failed_batches = []
+    url = f"{api._api_url}/gda/summary"
+
+    def fetch(batch, page_number):
+        get_params = {"gene_ncbi_id": batch, "page_number": str(page_number)}
+
+        if source != None:
+            get_params["source"] = source
+
+        return api._retrieve_data(url, get_params)
 
     for i in range(0, len(gene_ncbi_ids), batch_size):
         batch = gene_ncbi_ids[i : i + batch_size]
-        page_number = 0
+        result, failed = paginate_batch(fetch, batch, "DisGeNET GDA")
+        failed_batches.extend(failed)
 
-        while True:
-            url = f"{api._api_url}/gda/summary"
-            get_params = {
-                "gene_ncbi_id": batch,
-                "page_number": str(page_number),
-            }
+        for entry in result:
+            uniprot_ids = entry.get("geneProteinStrIDs")
 
-            if source != None:
-                get_params["source"] = source
+            if not uniprot_ids:
+                continue
 
-            result, paging = api._retrieve_data(url, get_params)
+            disease = entry.get("diseaseName")
+            disease_type = entry.get("diseaseType")
+            disease_type = disease_type.strip("[]") if disease_type else None
+            score = entry.get("normalized_score")
+            dsi = entry.get("geneDSI")
+            dpi = entry.get("geneDPI")
+            nof_pmids = entry.get("numPMIDs")
+            nof_snps = entry.get("numDBSNPsupportingAssociation")
 
-            if paging is None:
-                # A real error occurred (auth failure, bad response, etc.),
-                # not just an empty final page — stop this batch rather than
-                # silently treating a failure as "pagination complete".
-                _log(
-                    f"DisGeNET: stopping pagination for batch {batch} "
-                    f"at page {page_number} due to a retrieval error; "
-                    f"results for these ids are incomplete."
-                )
-                failed_batches.append(batch)
-                break
+            record_source = api._get_sources(entry)
 
-            if not result:
-                break
+            annotation = DisGeNetAnnotation(
+                disease,
+                disease_type,
+                api._get_float(score) if score != None else None,
+                api._get_float(dsi) if dsi != None else None,
+                api._get_float(dpi) if dpi != None else None,
+                api._get_int(nof_pmids) if nof_pmids != None else None,
+                api._get_int(nof_snps) if nof_snps != None else None,
+                record_source,
+            )
 
-            for entry in result:
-                uniprot_ids = entry.get("geneProteinStrIDs")
-
-                if not uniprot_ids:
-                    continue
-
-                disease = entry.get("diseaseName")
-                disease_type = entry.get("diseaseType")
-                disease_type = disease_type.strip("[]") if disease_type else None
-                score = entry.get("normalized_score")
-                dsi = entry.get("geneDSI")
-                dpi = entry.get("geneDPI")
-                nof_pmids = entry.get("numPMIDs")
-                nof_snps = entry.get("numDBSNPsupportingAssociation")
-
-
-                record_source = api._get_sources(entry)
-
-                annotation = DisGeNetAnnotation(
-                    disease,
-                    disease_type,
-                    api._get_float(score) if score != None else None,
-                    api._get_float(dsi) if dsi != None else None,
-                    api._get_float(dpi) if dpi != None else None,
-                    api._get_int(nof_pmids) if nof_pmids != None else None,
-                    api._get_int(nof_snps) if nof_snps != None else None,
-                    record_source,
-                )
-
-                for uniprot in uniprot_ids:
-                    data[uniprot].add(annotation)
-
-            if paging.get("totalElementsInPage", 0) < paging.get("pageSize", 100):
-                break
-
-            page_number += 1
+            for uniprot in uniprot_ids:
+                data[uniprot].add(annotation)
 
     return dict(data), failed_batches
