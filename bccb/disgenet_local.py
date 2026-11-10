@@ -24,6 +24,7 @@
 #
 
 import os
+import time
 import collections
 import json
 from getpass import getpass
@@ -36,6 +37,11 @@ import pypath.resources.urls as urls
 
 _logger = session.Logger(name="disgenet_input")
 _log = _logger._log
+
+# HTTP 429 is retried with exponential backoff (2, 4, 8, 16, 32 s), unless
+# the response carries a Retry-After header.
+RATE_LIMIT_RETRIES = 5
+RATE_LIMIT_BACKOFF = 2
 
 
 class DisgenetApi:
@@ -836,10 +842,30 @@ class DisgenetApi:
 
         get_params = get_params_list
 
-        c = curl.Curl(url=url, get=get_params, req_headers=headers)
+        for attempt in range(RATE_LIMIT_RETRIES + 1):
+            c = curl.Curl(url=url, get=get_params, req_headers=headers)
+
+            if c.status != 429 or attempt == RATE_LIMIT_RETRIES:
+                break
+
+            wait = self._retry_after(c) or RATE_LIMIT_BACKOFF * 2**attempt
+            _log(
+                f"DisGeNET: rate limited (HTTP 429), retrying in {wait} s "
+                f"(attempt {attempt + 1}/{RATE_LIMIT_RETRIES})."
+            )
+            time.sleep(wait)
+
+        def _reject():
+            # pypath caches HTTP-200 bodies even when they are error
+            # responses, so a rejected body would otherwise be served from
+            # the cache on every rerun.
+            if getattr(c, "cache_file_name", None):
+                c.delete_cache_file()
+            return None, None
 
         if c.status == 0 or c.status == 200:
-            raw_result = c.result
+            # c.result is None when pypath produced no body at all
+            raw_result = c.result or ""
 
             # The body can contain more than one concatenated JSON document:
             # pypath's retry loop appends a successful retry after the failed
@@ -864,11 +890,11 @@ class DisgenetApi:
             except json.JSONDecodeError as e:
                 _log(f"DisGeNET: could not parse response as JSON: {e}")
                 _log(f"DisGeNET response body: {repr(raw_result)[:200]}")
-                return None, None
+                return _reject()
 
             if not documents:
                 _log("DisGeNET: empty response body.")
-                return None, None
+                return _reject()
 
             if len(documents) > 1:
                 _log(
@@ -884,7 +910,7 @@ class DisgenetApi:
                     f"DisGeNET: API returned a non-OK status: "
                     f"{repr(raw_result)[:300]}"
                 )
-                return None, None
+                return _reject()
 
             # Records live under "payload"; "paging" carries pageSize,
             # totalElements, and currentPageNumber, which callers doing
@@ -895,7 +921,29 @@ class DisgenetApi:
 
         _log(f"DisGeNET: an error occurred with the code {c.status}")
         _log(f"DisGeNET response body: {repr(c.result)[:200]}")
-        return None, None # keep return shape consistent for (result, paging) unpacking
+        return _reject()
+
+    @staticmethod
+    def _retry_after(c) -> Optional[float]:
+        """
+        Returns the Retry-After delay in seconds from the response headers,
+        or None if the header is absent or not a number.
+        """
+
+        for header in getattr(c, "resp_headers", None) or []:
+            if isinstance(header, bytes):
+                header = header.decode("ascii", errors="ignore")
+
+            name, _, value = header.partition(":")
+
+            if name.strip().lower() == "retry-after":
+                try:
+                    return max(float(value.strip()), 0)
+                except ValueError:
+                    return None
+
+        return None
+
     def _get_int(self, str_obj) -> int:
         """
         Returns an int if the object is not None
