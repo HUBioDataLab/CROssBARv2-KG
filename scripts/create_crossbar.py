@@ -13,6 +13,10 @@ from bccb.uniprot_adapter import (
     UniprotIDField,
 )
 
+from bccb.organism_adapter import (
+    Organism
+)
+
 from bccb.ppi_adapter import (
     PPI
 )
@@ -87,7 +91,6 @@ drugbank_passwd = "YOUR_DRUGBANK_PASSWD"
 uniprot_node_types = [
     UniprotNodeType.PROTEIN,
     UniprotNodeType.GENE,
-    UniprotNodeType.ORGANISM,
 ]
 
 uniprot_node_fields = [
@@ -141,6 +144,16 @@ if export_as_csv:
     uniprot_adapter.export_data_to_csv(path=output_dir_path,
                                     node_data=uniprot_adapter.get_nodes(),
                                     edge_data=uniprot_edges)
+
+# organism
+organism_adapter = Organism(
+    export_csv=export_as_csv,
+    output_dir=output_dir_path,
+    test_mode=TEST_MODE
+)
+organism_adapter.download_organism_data(cache=CACHE)
+bc.write_nodes(organism_adapter.get_nodes())
+bc.write_edges(organism_adapter.get_edges())
 
 # PPI
 ppi_adapter = PPI(organism=None, 
