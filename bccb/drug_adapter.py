@@ -611,6 +611,22 @@ class Drug:
             if v.get("KEGG Drug", None)
         }
 
+        # create rxcui-drugbank mapping, rxcuis of more than one drugbank id are kept apart
+        rxcui_to_drugbank_ids = collections.defaultdict(set)
+        for k, v in self.drugbank_drugs_external_ids.items():
+            if v.get("RxCUI", None):
+                rxcui_to_drugbank_ids[v["RxCUI"]].add(k)
+        self.rxcui_to_drugbank = {
+            rxcui: next(iter(drugbank_ids))
+            for rxcui, drugbank_ids in rxcui_to_drugbank_ids.items()
+            if len(drugbank_ids) == 1
+        }
+        self.ambiguous_rxcui_to_drugbank = {
+            rxcui: sorted(drugbank_ids)
+            for rxcui, drugbank_ids in rxcui_to_drugbank_ids.items()
+            if len(drugbank_ids) > 1
+        }
+
         self.drugcentral_to_drugbank = collections.defaultdict(list)
         self.drugbank_to_drugcentral = collections.defaultdict(None)
         for k, v in drugcentral_to_cas.items():
@@ -793,8 +809,15 @@ class Drug:
 
         df_list = []
 
+        # skipped rows: drug prefix -> rows without a DrugBank mapping
+        skipped_drug = collections.Counter()
+        skipped_gene = 0
+        skipped_missing_id = 0
+        skipped_ambiguous_rxcui = 0
+
         for dti in self.dgidb_dti:
             if not dti.gene_id or not dti.drug_id:
+                skipped_missing_id += 1
                 continue
 
             uniprot_ids = self.dgidb_gene_to_uniprot.get(dti.gene_id.lower())
@@ -804,20 +827,54 @@ class Drug:
                 drugbank_id = self.chembl_to_drugbank.get(drug_id.upper())
             elif drug_prefix == "drugbank":
                 drugbank_id = drug_id.upper()
+            elif drug_prefix == "rxcui":
+                drugbank_id = self.rxcui_to_drugbank.get(drug_id)
             else:
                 drugbank_id = None
 
-            if uniprot_ids and drugbank_id:
-                pmid = "|".join(dti.pmid.split(",")) if dti.pmid else None
-                df_list.append(
-                    (
-                        uniprot_ids[0],
-                        drugbank_id,
-                        dti.type,
-                        dti.score,
-                        pmid,
-                    )
+            if drug_prefix == "rxcui" and drug_id in self.ambiguous_rxcui_to_drugbank:
+                skipped_ambiguous_rxcui += 1
+                continue
+
+            if not drugbank_id:
+                skipped_drug[drug_prefix] += 1
+                continue
+
+            if not uniprot_ids:
+                skipped_gene += 1
+                continue
+
+            pmid = "|".join(dti.pmid.split(",")) if dti.pmid else None
+            df_list.append(
+                (
+                    uniprot_ids[0],
+                    drugbank_id,
+                    dti.type,
+                    dti.score,
+                    pmid,
                 )
+            )
+
+        n_skipped = (
+            sum(skipped_drug.values())
+            + skipped_gene
+            + skipped_missing_id
+            + skipped_ambiguous_rxcui
+        )
+        ambiguous_rxcuis = ", ".join(
+            f"{rxcui} -> {'|'.join(drugbank_ids)}"
+            for rxcui, drugbank_ids in sorted(self.ambiguous_rxcui_to_drugbank.items())
+        )
+        logger.info(
+            f"DGIdb: kept {len(df_list)} of {len(df_list) + n_skipped} rows. "
+            "Skipped, no DrugBank mapping (per drug prefix): "
+            + ", ".join(f"{prefix} {n}" for prefix, n in skipped_drug.most_common())
+            + f". Skipped, RxCUI maps to more than one DrugBank ID: {skipped_ambiguous_rxcui} "
+            f"(RxCUIs in DrugBank with more than one DrugBank ID: "
+            f"{len(self.ambiguous_rxcui_to_drugbank)}{': ' + ambiguous_rxcuis if ambiguous_rxcuis else ''})"
+            f". Skipped, no UniProt mapping for the gene: {skipped_gene}. "
+            f"Skipped, missing gene or drug ID: {skipped_missing_id}."
+        )
 
         dgidb_dti_df = pd.DataFrame(
             df_list,
@@ -1082,12 +1139,7 @@ class Drug:
             if mapping.drugbank
         }
 
-        # ddinter_interactions() returns one set of interactions per drug, flatten it
-        self.ddinter_interactions = [
-            interaction
-            for drug_interactions in ddinter.ddinter_interactions()
-            for interaction in drug_interactions
-        ]
+        self.ddinter_interactions = ddinter.ddinter_interactions()
 
         t1 = time()
         logger.info(
