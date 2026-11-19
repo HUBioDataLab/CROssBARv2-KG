@@ -37,7 +37,6 @@ organism taxon:
   label_in_input: organism
   properties:
     organism_name: str
-    name: str
     common_name: str
     rank: str
     source: str

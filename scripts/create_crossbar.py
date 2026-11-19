@@ -145,16 +145,6 @@ if export_as_csv:
                                     node_data=uniprot_adapter.get_nodes(),
                                     edge_data=uniprot_edges)
 
-# organism
-organism_adapter = Organism(
-    export_csv=export_as_csv,
-    output_dir=output_dir_path,
-    test_mode=TEST_MODE
-)
-organism_adapter.download_organism_data(cache=CACHE)
-bc.write_nodes(organism_adapter.get_nodes())
-bc.write_edges(organism_adapter.get_edges())
-
 # PPI
 ppi_adapter = PPI(organism=None, 
                   output_dir=output_dir_path,
@@ -238,7 +228,28 @@ disease_adapter = Disease(
 )
 disease_adapter.download_disease_data(cache=CACHE)
 bc.write_nodes(disease_adapter.get_nodes())
-bc.write_edges(disease_adapter.get_edges())
+disease_edges = disease_adapter.get_edges()
+bc.write_edges(disease_edges)
+
+# organism
+# only the organisms the uniprot and disease edges link to, and their
+# ancestors up to the root
+organism_tax_ids = {
+    node_id
+    for edges in (uniprot_edges, disease_edges)
+    for _, source_id, target_id, _, _ in edges
+    for node_id in (source_id, target_id)
+    if isinstance(node_id, str) and node_id.startswith("ncbitaxon:")
+}
+organism_adapter = Organism(
+    tax_ids=organism_tax_ids,
+    export_csv=export_as_csv,
+    output_dir=output_dir_path,
+    test_mode=TEST_MODE
+)
+organism_adapter.download_organism_data(cache=CACHE)
+bc.write_nodes(organism_adapter.get_nodes())
+bc.write_edges(organism_adapter.get_edges())
 
 # phenotype
 phenotype_adapter = HPO(

@@ -5,7 +5,6 @@ from contextlib import ExitStack
 from bioregistry import normalize_curie
 from tqdm import tqdm
 from time import time
-from datetime import datetime, timezone
 
 import pandas as pd
 
@@ -15,15 +14,12 @@ from enum import Enum, EnumMeta, auto
 from typing import Union
 
 from pypath.inputs import ncbi_taxonomy
-from pypath.resources import urls
 
 from biocypher._logger import logger
 
 from pydantic import BaseModel, DirectoryPath, validate_call
 
 logger.debug(f"Loading module {__name__}.")
-
-ROOT_TAX_ID = 1
 
 
 class OrganismEnumMeta(EnumMeta):
@@ -32,7 +28,7 @@ class OrganismEnumMeta(EnumMeta):
 
 
 class OrganismNodeField(Enum, metaclass=OrganismEnumMeta):
-    NAME = "name"
+    NAME = "organism_name"
     COMMON_NAME = "common_name"
     RANK = "rank"
 
@@ -53,7 +49,8 @@ class OrganismModel(BaseModel):
     organism_node_fields: Union[list[OrganismNodeField], None] = None
     edge_types: Union[list[OrganismEdgeType], None] = None
     ranks: Union[set[str], None] = None
-    include_no_rank: bool = False
+    include_no_rank: bool = True
+    tax_ids: Union[set[str], None] = None
     test_mode: bool = False
     export_csv: bool = False
     output_dir: DirectoryPath | None = None
@@ -68,11 +65,17 @@ class Organism:
         organism_node_fields: node properties to include, all if None.
         edge_types: edge types to include, all if None.
         ranks: keep only taxa of these ranks (e.g. {"species", "genus"}),
-            all named ranks if None.
+            all ranks if None.
         include_no_rank: keep the taxa without a named rank ("no rank"
             and "clade"). If a taxon is excluded, its descendants are
             linked to their closest included ancestor. The root is always
-            kept, and the taxa directly under it are linked to it.
+            kept, and it is the parent of the taxa without any other
+            included ancestor.
+        tax_ids: keep only these taxa (e.g. the organisms other adapters
+            link to, as "ncbitaxon:9606" or "9606") and all of their
+            ancestors up to the root, regardless of rank. If given, ranks
+            and include_no_rank are not used. If None, the full taxonomy
+            is kept.
         test_mode: if True, only the first 100 taxa are processed.
         export_csv: if True, nodes and edges are also written to csv.
         output_dir: directory of the csv files, cwd if None.
@@ -84,7 +87,8 @@ class Organism:
         organism_node_fields: Union[list[OrganismNodeField], None] = None,
         edge_types: Union[list[OrganismEdgeType], None] = None,
         ranks: Union[set[str], None] = None,
-        include_no_rank: bool = False,
+        include_no_rank: bool = True,
+        tax_ids: Union[set[str], None] = None,
         test_mode: bool = False,
         export_csv: bool = False,
         output_dir: DirectoryPath | None = None,
@@ -96,6 +100,7 @@ class Organism:
             edge_types=edge_types,
             ranks=ranks,
             include_no_rank=include_no_rank,
+            tax_ids=tax_ids,
             test_mode=test_mode,
             export_csv=export_csv,
             output_dir=output_dir,
@@ -104,12 +109,13 @@ class Organism:
 
         self.ranks = model["ranks"]
         self.include_no_rank = model["include_no_rank"]
+        self.tax_ids = model["tax_ids"]
         self.export_csv = model["export_csv"]
         self.output_dir = model["output_dir"]
         self.add_prefix = model["add_prefix"]
 
         # source, licence, and version fields
-        # version is the date of the taxdump, set after download
+        # version is the release date of the taxdump, set after download
         self.data_source = "NCBI Taxonomy"
         self.data_licence = "NCBI Copyright and Data Reuse Policy"
         self.data_version = None
@@ -153,21 +159,39 @@ class Organism:
             logger.debug("Started downloading NCBI Taxonomy data")
             t0 = time()
 
-            self.taxa = ncbi_taxonomy.ncbi_taxonomy(
+            tax_ids = None
+            if self.tax_ids is not None:
+                # "ncbitaxon:9606" or "9606"
+                tax_ids = {
+                    int(tax_id.rsplit(":", 1)[-1]) for tax_id in self.tax_ids
+                }
+
+            self.taxa, self.data_version = ncbi_taxonomy.ncbi_taxonomy(
                 ranks=self.ranks,
                 include_no_rank=self.include_no_rank,
+                keep_root=True,
+                tax_ids=tax_ids,
+                release_date=True,
             )
-
-            self._keep_root()
 
             t1 = time()
             logger.info(
                 f"NCBI Taxonomy data is downloaded in {round((t1-t0) / 60, 2)} mins"
             )
+            logger.info(f"NCBI Taxonomy taxdump version: {self.data_version}")
 
-        # outside of cache_off, reads the archive cached by the download above
-        self.data_version = self._get_taxdump_version()
-        logger.info(f"NCBI Taxonomy taxdump version: {self.data_version}")
+            if tax_ids is not None:
+                missing = sorted(tax_ids - self.taxa.keys())
+                logger.info(
+                    f"{len(tax_ids) - len(missing)} of the {len(tax_ids)} "
+                    f"requested taxa and their ancestors give {len(self.taxa)} "
+                    "organism nodes."
+                )
+                if missing:
+                    logger.info(
+                        f"{len(missing)} requested taxa are not in NCBI "
+                        f"Taxonomy (e.g. merged or deleted): {missing[:10]}"
+                    )
 
     @validate_call
     def get_nodes(self, label: str = "organism") -> list[tuple]:
@@ -281,66 +305,6 @@ class Organism:
 
         return edge_list
 
-    def _keep_root(self) -> None:
-        """
-        Adds the root back if the rank filters excluded it, and links the
-        kept taxa whose parent in NCBI Taxonomy is the root to it (e.g.
-        cellular organisms and Viruses). The other taxa without any kept
-        ancestor remain without parent.
-        """
-        if ROOT_TAX_ID in self.taxa:
-            return
-
-        nodes = ncbi_taxonomy._taxdump(["nodes.dmp"])["nodes.dmp"]
-
-        root_children = set()
-        root_rank = None
-
-        for rec in ncbi_taxonomy._iter_dmp(nodes):
-            tax_id, parent_tax_id = int(rec[0]), int(rec[1])
-
-            if tax_id == ROOT_TAX_ID:
-                root_rank = rec[2]
-
-            elif parent_tax_id == ROOT_TAX_ID and tax_id in self.taxa:
-                root_children.add(tax_id)
-
-        for tax_id in root_children:
-            self.taxa[tax_id] = self.taxa[tax_id]._replace(
-                parent_tax_id=ROOT_TAX_ID
-            )
-
-        # the root is the first taxon, as in the unfiltered data
-        self.taxa = {
-            ROOT_TAX_ID: ncbi_taxonomy.NcbiTaxon(
-                tax_id=ROOT_TAX_ID,
-                scientific_name="root",
-                rank=root_rank,
-            )
-        } | self.taxa
-
-        logger.info(
-            f"NCBI Taxonomy root is kept, {len(root_children)} taxa are "
-            "linked to it."
-        )
-
-    def _get_taxdump_version(self) -> str:
-        """
-        Date of the NCBI Taxonomy release, i.e. the modification time of
-        `nodes.dmp` in the taxdump archive, in YYYY-MM-DD format.
-        """
-        c = curl.Curl(
-            urls.urls["ncbi_taxonomy"]["taxdump"],
-            large=True,
-            silent=True,
-            compr="tgz",
-            files_needed=["nodes.dmp"],
-        )
-        mtime = c.tarfile.getmember("nodes.dmp").mtime
-        c.tarfile.close()
-
-        return datetime.fromtimestamp(mtime, tz=timezone.utc).strftime("%Y-%m-%d")
-
     @staticmethod
     def _clean(value: str) -> str:
         return value.replace("|", ",").replace("'", "^")
@@ -357,7 +321,7 @@ class Organism:
         return identifier
 
     def set_node_fields(self, organism_node_fields):
-        if organism_node_fields:
+        if organism_node_fields is not None:
             self.organism_node_fields = [
                 field.value for field in organism_node_fields
             ]
@@ -367,4 +331,6 @@ class Organism:
             ]
 
     def set_edge_types(self, edge_types):
-        self.edge_types = edge_types or list(OrganismEdgeType)
+        self.edge_types = (
+            edge_types if edge_types is not None else list(OrganismEdgeType)
+        )
