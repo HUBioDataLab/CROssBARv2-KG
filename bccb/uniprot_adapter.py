@@ -571,6 +571,26 @@ class Uniprot:
 
                     self.data[arg][protein] = individual_protein_locations
 
+            # Organisms merged into other taxa in NCBI Taxonomy point to the
+            # taxon they are merged into, both in the organism_id property
+            # of proteins and in protein-organism edges
+            elif arg == UniprotNodeField.ORGANISM_ID.value:
+
+                merged = ncbi_taxonomy.ncbi_taxonomy_merged()
+                remapped_proteins = 0
+
+                for protein, attribute_value in self.data.get(arg).items():
+
+                    if attribute_value in merged:
+                        self.data[arg][protein] = merged[attribute_value]
+                        remapped_proteins += 1
+
+                logger.info(
+                    f"Organism ids of {remapped_proteins} proteins are merged "
+                    "in NCBI Taxonomy, they are replaced with the ids of the "
+                    "taxa they are merged into."
+                )
+
     @validate_call
     def _get_ligand_or_receptor(self, uniprot_id: str):
         """
@@ -667,13 +687,6 @@ class Uniprot:
             "version": self.data_version,
         }
 
-        # organisms merged into other taxa in NCBI Taxonomy
-        if UniprotEdgeType.PROTEIN_TO_ORGANISM in self.edge_types:
-            if not hasattr(self, "ncbitaxon_merged"):
-                self.ncbitaxon_merged = ncbi_taxonomy.ncbi_taxonomy_merged()
-
-            remapped_organism_edges = 0
-
         for protein in tqdm(self.uniprot_ids, desc="Getting edges"):
 
             protein_id = self.add_prefix_to_id("uniprot", protein)
@@ -735,16 +748,6 @@ class Uniprot:
 
                 if organism_id:
 
-                    # point to the taxon the organism is merged into
-                    if (
-                        organism_id.isdigit()
-                        and int(organism_id) in self.ncbitaxon_merged
-                    ):
-                        organism_id = str(
-                            self.ncbitaxon_merged[int(organism_id)]
-                        )
-                        remapped_organism_edges += 1
-
                     organism_id = self.add_prefix_to_id(
                         "ncbitaxon", organism_id
                     )
@@ -757,13 +760,6 @@ class Uniprot:
                             properties,
                         )
                     )
-
-        if UniprotEdgeType.PROTEIN_TO_ORGANISM in self.edge_types:
-            logger.info(
-                f"{remapped_organism_edges} protein-organism edges point to "
-                "organisms merged in NCBI Taxonomy, they are linked to the "
-                "taxa they are merged into."
-            )
 
         return edge_list
 
