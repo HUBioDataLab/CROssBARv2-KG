@@ -21,6 +21,7 @@ import os
 import h5py
 
 from pypath.inputs import ontology
+from pypath.inputs import ncbi_taxonomy
 from pypath.formats import obo
 from pypath.utils import mapping
 from pypath.utils import go as go_util
@@ -2740,10 +2741,36 @@ class Disease:
             "F": molecular_function_label,
         }
 
+        # =========================================================
+        # LOAD MERGED NCBI TAXONOMY IDS ONLY WHEN NEEDED
+        # =========================================================
+
+        ncbitaxon_requested = (
+            requested_ontologies is None
+            or "NCBITAXON" in requested_ontologies
+        )
+
+        if (
+            ncbitaxon_requested
+            and not hasattr(
+                self,
+                "ncbitaxon_merged",
+            )
+        ):
+            logger.info(
+                "Loading merged NCBI Taxonomy ids for "
+                "MONDO NCBITaxon targets"
+            )
+
+            self.ncbitaxon_merged = (
+                ncbi_taxonomy.ncbi_taxonomy_merged()
+            )
+
         edge_list = []
 
         unknown_go_aspects = []
         invalid_relations = []
+        remapped_organism_targets = 0
 
         # =========================================================
         # GENERATE EDGES
@@ -2824,6 +2851,21 @@ class Disease:
             elif ontology_key == "NCBITAXON":
 
                 label = organism_label
+
+                # taxa merged into other taxa in NCBI Taxonomy
+                # point to the id they are merged into
+                tax_id = target_raw.split(":", 1)[1]
+
+                if (
+                    tax_id.isdigit()
+                    and int(tax_id) in self.ncbitaxon_merged
+                ):
+                    target_id = normalize_curie(
+                        "NCBITaxon:"
+                        f"{self.ncbitaxon_merged[int(tax_id)]}"
+                    )
+
+                    remapped_organism_targets += 1
 
             # =====================================================
             # GO
@@ -2921,6 +2963,14 @@ class Disease:
             f"Generated {len(edge_list)} "
             "MONDO cross-ontology edges"
         )
+
+        if remapped_organism_targets:
+
+            logger.info(
+                f"{remapped_organism_targets} NCBITaxon targets "
+                "were merged in NCBI Taxonomy and point to "
+                "the taxa they are merged into"
+            )
 
         if invalid_relations:
 

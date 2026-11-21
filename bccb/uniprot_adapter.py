@@ -14,7 +14,7 @@ import h5py
 from tqdm import tqdm  # progress bar
 from pypath.share import curl, settings
 from pypath.utils import mapping
-from pypath.inputs import uniprot
+from pypath.inputs import uniprot, ncbi_taxonomy
 from biocypher._logger import logger
 from contextlib import ExitStack
 from bioregistry import normalize_curie
@@ -570,6 +570,26 @@ class Uniprot:
                         self.locations.add(loc)
 
                     self.data[arg][protein] = individual_protein_locations
+
+            # Organisms merged into other taxa in NCBI Taxonomy point to the
+            # taxon they are merged into, both in the organism_id property
+            # of proteins and in protein-organism edges
+            elif arg == UniprotNodeField.ORGANISM_ID.value:
+
+                merged = ncbi_taxonomy.ncbi_taxonomy_merged()
+                remapped_proteins = 0
+
+                for protein, attribute_value in self.data.get(arg).items():
+
+                    if attribute_value in merged:
+                        self.data[arg][protein] = merged[attribute_value]
+                        remapped_proteins += 1
+
+                logger.info(
+                    f"Organism ids of {remapped_proteins} proteins are merged "
+                    "in NCBI Taxonomy, they are replaced with the ids of the "
+                    "taxa they are merged into."
+                )
 
     @validate_call
     def _get_ligand_or_receptor(self, uniprot_id: str):
