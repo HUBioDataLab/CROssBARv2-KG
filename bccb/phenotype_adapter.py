@@ -310,7 +310,7 @@ class HPO:
                     ]
 
             # get CADA phenotype embeddings
-            if PhenotypeNodeField.CADA_EMBEDDING.value in self.phenotype_node_fields and self.hpo_id_to_cada_embedding.get(term):
+            if PhenotypeNodeField.CADA_EMBEDDING.value in self.phenotype_node_fields and self.hpo_id_to_cada_embedding.get(term) is not None:
                 props[PhenotypeNodeField.CADA_EMBEDDING.value] = [str(emb) for emb in self.hpo_id_to_cada_embedding[term]]
 
             node_list.append((hpo_id, label, props))

@@ -87,6 +87,9 @@ output_dir_path = "YOUR_PATH"
 drugbank_user = "YOUR_DRUGBANK_USER"
 drugbank_passwd = "YOUR_DRUGBANK_PASSWD"
 
+# embedding files, download them from the link in the README and unzip into the project root
+embeddings_dir = project_root / "embeddings"
+
 # uniprot configuration
 uniprot_node_types = [
     UniprotNodeType.PROTEIN,
@@ -131,7 +134,13 @@ uniprot_adapter = Uniprot(
         test_mode=TEST_MODE,
     )
 
-uniprot_adapter.download_uniprot_data(cache=CACHE, retries=6)
+uniprot_adapter.download_uniprot_data(
+    cache=CACHE,
+    retries=6,
+    prott5_embedding_output_path=embeddings_dir / "prott5_protein_embeddings.h5",
+    esm2_embedding_path=embeddings_dir / "esm2_t33_650M_UR50D_protein_embedding.h5",
+    nucleotide_transformer_embedding_path=embeddings_dir / "nucleotide_transformerv2_2.5b_multispecies_embeddings.h5",
+)
 
 uniprot_edges = uniprot_adapter.get_edges()
 
@@ -163,7 +172,10 @@ interpro_adapter = InterPro(
     test_mode=TEST_MODE
 )
 
-interpro_adapter.download_interpro_data(cache=CACHE)
+interpro_adapter.download_interpro_data(
+    cache=CACHE,
+    dom2vec_embedding_path=embeddings_dir / "dom2vec_domain_embedding.h5",
+)
 
 
 if export_as_csv:
@@ -178,7 +190,10 @@ go_adapter = GO(
     organism="*", 
     test_mode=TEST_MODE
 )
-go_adapter.download_go_data(cache=CACHE)
+go_adapter.download_go_data(
+    cache=CACHE,
+    anc2vec_embedding_path=embeddings_dir / "anc2vec_go_term_embedding.h5",
+)
 bc.write_nodes(go_adapter.get_go_nodes())
 bc.write_edges(go_adapter.get_go_edges())
 if export_as_csv:
@@ -193,7 +208,10 @@ drug_adapter = Drug(
     output_dir=output_dir_path,
     test_mode=TEST_MODE
 )
-drug_adapter.download_drug_data(cache=CACHE)
+drug_adapter.download_drug_data(
+    cache=CACHE,
+    selformer_embedding_path=embeddings_dir / "selformer_drug_embeddings.h5",
+)
 drug_adapter.process_drug_data()
 bc.write_nodes(drug_adapter.get_drug_nodes())
 bc.write_edges(drug_adapter.get_edges())
@@ -204,7 +222,10 @@ compound_adapter = Compound(
     export_csv=export_as_csv, 
     output_dir=output_dir_path
 )
-compound_adapter.download_compound_data(cache=CACHE)
+compound_adapter.download_compound_data(
+    cache=CACHE,
+    selformer_embedding_path=embeddings_dir / "selformer_compound_embeddings.h5",
+)
 compound_adapter.process_compound_data()
 bc.write_nodes(compound_adapter.get_compound_nodes())
 bc.write_edges(compound_adapter.get_cti_edges())
@@ -226,7 +247,10 @@ disease_adapter = Disease(
     output_dir=output_dir_path,
     test_mode=TEST_MODE
 )
-disease_adapter.download_disease_data(cache=CACHE)
+disease_adapter.download_disease_data(
+    cache=CACHE,
+    doc2vec_embedding_path=embeddings_dir / "doc2vec_disease_embedding.h5",
+)
 bc.write_nodes(disease_adapter.get_nodes())
 disease_edges = disease_adapter.get_edges()
 bc.write_edges(disease_edges)
@@ -257,7 +281,10 @@ phenotype_adapter = HPO(
     output_dir=output_dir_path,
     test_mode=TEST_MODE
 )
-phenotype_adapter.download_hpo_data(cache=CACHE)
+phenotype_adapter.download_hpo_data(
+    cache=CACHE,
+    cada_embedding_path=embeddings_dir / "cada_phenotype_embedding.h5",
+)
 bc.write_nodes(phenotype_adapter.get_nodes())
 bc.write_edges(phenotype_adapter.get_edges())
 
@@ -269,7 +296,10 @@ pathway_adapter = Pathway(
     output_dir=output_dir_path,
     test_mode=TEST_MODE,
 )
-pathway_adapter.download_pathway_data(cache=CACHE)
+pathway_adapter.download_pathway_data(
+    cache=CACHE,
+    biokeen_embedding_path=embeddings_dir / "biokeen_pathway_embedding.h5",
+)
 bc.write_nodes(pathway_adapter.get_nodes())
 bc.write_edges(pathway_adapter.get_edges())
 
@@ -293,7 +323,10 @@ ec_adapter = EC(
     output_dir=output_dir_path,
     test_mode=TEST_MODE
 )
-ec_adapter.download_ec_data(cache=CACHE)
+ec_adapter.download_ec_data(
+    cache=CACHE,
+    rxnfp_embedding_path=embeddings_dir / "rxnfp_ec_number_embedding.h5",
+)
 bc.write_nodes(ec_adapter.get_nodes())
 bc.write_edges(ec_adapter.get_edges())
 
