@@ -20,3 +20,4 @@ biocypher-log/
 pypath_log/
 .ipynb-checkpoints/
 deneme*.py
+embeddings/

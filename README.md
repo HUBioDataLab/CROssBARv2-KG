@@ -247,7 +247,7 @@ python create_crossbar.py
 ## Data
 
 - Neo4j-importable CSV files required to reconstruct the KG are publicly available at [here](https://drive.google.com/file/d/1KoMAxlvy_4IOo8MPi4TrSbMlQtBf8Pch/view?usp=sharing). 
-- Embedding files used by adapters publicly available at [here](https://drive.google.com/file/d/1HRUlQ_PaunSH7Rs8ZCihKdiVxiOZrE0W/view?usp=sharing). 
+- Embedding files used by adapters publicly available at [here](https://drive.google.com/file/d/1HRUlQ_PaunSH7Rs8ZCihKdiVxiOZrE0W/view?usp=sharing). Unzip it into the project root so the files are in `embeddings/`, where `create_crossbar.py` expects them. 
 - [MalaCards](https://www.malacards.org/) data used by disease adapter is available at [here](https://drive.google.com/drive/folders/1Yx3yGMccBbyiTNla-hleT7Uza5bivkFW?usp=sharing).
 - Hugging Face Dataset: The raw node and edge datasets are also hosted on [Hugging Face](https://huggingface.co/datasets/HUBioDataLab/CROssBARv2-KG).
 
