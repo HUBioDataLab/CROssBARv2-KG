@@ -662,7 +662,7 @@ drug to side effect association:
   label_in_input: drug_has_side_effect
   properties:
     source: str[]
-    proportional_reporting_ratio: str
+    proportional_reporting_ratio: float
     frequency: str
 
 side effect hierarchical association:
